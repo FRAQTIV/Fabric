@@ -24,8 +24,12 @@ This repository follows an MCP-guided Git workflow. Before performing Git action
 
 ## Protected Branches
 
-- Direct commits to `main` are not allowed (local hooks may block)
+This is a sandbox fork and will never merge upstream. We protect `main` locally and promote from `dev` via PRs.
+
+- Direct commits to `main` are blocked by local hooks
+- Direct pushes to `main` are blocked by local hooks
 - The integration branch is `dev`
+- To promote changes: open a PR from `dev` to `main` (use `bin/promote`)
 
 ## Hooks
 
@@ -35,6 +39,9 @@ This repository follows an MCP-guided Git workflow. Before performing Git action
 ## Helper Scripts
 
 - `bin/feature <short-kebab-description>`: Automates start_feature flow
+- `bin/pr "Title" [--draft]`: Open a PR from current feature/* to `dev`
+- `bin/merge_feature [--no-delete]`: Merge current feature/* into `dev` and delete the branch
+- `bin/promote "Title" [--draft]`: Open a PR from `dev` to `main` for promotion
 
 ## Notes
 
