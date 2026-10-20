@@ -34,26 +34,29 @@ Claude does the reasoning, so there is no second model bill.
 
 ## 1. Home machine: transcript agent
 
-Needs Go (to build Fabric) and `yt-dlp` on `PATH`.
+Needs Go 1.26+ (to build Fabric), plus `yt-dlp` and `deno` (yt-dlp's JavaScript runtime for YouTube) on `PATH`.
 
 ```bash
-# yt-dlp
-brew install yt-dlp            # macOS   (Windows: winget install yt-dlp ; Linux: pipx install yt-dlp)
+# yt-dlp + its JS runtime
+brew install yt-dlp deno       # macOS   (Windows: winget install yt-dlp DenoLand.Deno ; Linux: pipx install yt-dlp + https://deno.land)
 
-# Fabric from this repo
+# Fabric from this repo (go.mod requires Go 1.26)
 go install ./cmd/fabric        # or: go build -o fabric ./cmd/fabric
 fabric --setup                 # once; creates ~/.config/fabric (you can skip configuring vendors)
 
-# run the REST server with an API key of your choosing
-export FABRIC_AGENT_KEY="$(openssl rand -hex 24)"
-fabric --serve --address 127.0.0.1:8080 --api-key "$FABRIC_AGENT_KEY"
+# run the REST server with an API key of your choosing (flag --api-key or env FABRIC_API_KEY)
+export FABRIC_API_KEY="$(openssl rand -hex 24)"
+fabric --serve --address 127.0.0.1:8080
 ```
+
+If YouTube answers "Sign in to confirm you're not a bot", let yt-dlp reuse your browser's cookies:
+`fabric --serve --yt-dlp-args '--cookies-from-browser safari'` (or `chrome`, `firefox`, `brave`).
 
 Sanity check from the same machine:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/youtube/transcript \
-  -H "X-API-Key: $FABRIC_AGENT_KEY" -H 'Content-Type: application/json' \
+  -H "X-API-Key: $FABRIC_API_KEY" -H 'Content-Type: application/json' \
   -d '{"url":"https://youtu.be/URCUAj1bt28","language":"en"}' | head -c 300
 ```
 
@@ -79,7 +82,7 @@ Environment variables (Production):
 | Variable | Value |
 | --- | --- |
 | `HOME_AGENT_URL` | the tunnel URL, e.g. `https://xyz.trycloudflare.com` |
-| `HOME_AGENT_API_KEY` | the same key you passed to `fabric --serve --api-key` |
+| `HOME_AGENT_API_KEY` | the same key the home agent runs with (`FABRIC_API_KEY` / `--api-key`) |
 | `MCP_PATH_TOKEN` | a long random secret, e.g. `openssl rand -hex 24` — becomes part of the connector URL |
 | `PATTERNS_BASE_URL` | optional; default `https://raw.githubusercontent.com/FRAQTIV/Fabric/main` |
 
@@ -121,6 +124,8 @@ Point `HOME_AGENT_URL` at a real tunnel (and set `HOME_AGENT_API_KEY`) to test r
   changed after a restart (update `HOME_AGENT_URL` on Vercel). Run the `health` tool to see which.
 - **"API key rejected"** — `HOME_AGENT_API_KEY` on Vercel ≠ `--api-key` on the home machine.
 - **"yt-dlp not found in PATH"** — install yt-dlp on the home machine; make sure the `fabric` process can see it.
+- **"Sign in to confirm you're not a bot"** — YouTube is challenging your IP; restart the agent with
+  `--yt-dlp-args '--cookies-from-browser <browser>'` so yt-dlp uses your logged-in browser session.
 - **"No captions were returned"** — the video has no subtitles in that language; try `language: "es"` etc.
   yt-dlp itself occasionally needs an update (`yt-dlp -U`) when YouTube changes things.
 - **Slow first call** — the transcript tool waits up to `TRANSCRIPT_TIMEOUT_MS` (100 s); long videos take 10–30 s.
