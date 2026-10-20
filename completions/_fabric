@@ -72,6 +72,7 @@ _fabric() {
 
   _arguments -C \
     '(-p --pattern)'{-p,--pattern}'[Choose a pattern from the available patterns]:pattern:_fabric_patterns' \
+    '(--workflow)--workflow[Run a sequence of patterns defined in a YAML or JSON workflow file]:workflow file:_files -g "*.yaml *.yml *.json"' \
     '(-v --variable)'{-v,--variable}'[Values for pattern variables, e.g. -v=#role:expert -v=#points:30]:variable:' \
     '(-C --context)'{-C,--context}'[Choose a context from the available contexts]:context:_fabric_contexts' \
     '(--session)--session[Choose a session from the available sessions]:session:_fabric_sessions' \
@@ -81,31 +82,40 @@ _fabric() {
     '(-T --topp)'{-T,--topp}'[Set top P (default: 0.9)]:topp:' \
     '(-s --stream)'{-s,--stream}'[Stream]' \
     '(-P --presencepenalty)'{-P,--presencepenalty}'[Set presence penalty (default: 0.0)]:presence penalty:' \
-    '(-r --raw)'{-r,--raw}'[Use the defaults of the model without sending chat options]' \
+    '(-r --raw)'{-r,--raw}'[Use the defaults of the model without sending chat options. Only affects OpenAI-compatible providers. Anthropic models always use smart parameter selection to comply with model-specific requirements.]' \
     '(-F --frequencypenalty)'{-F,--frequencypenalty}'[Set frequency penalty (default: 0.0)]:frequency penalty:' \
     '(-l --listpatterns)'{-l,--listpatterns}'[List all patterns]' \
+    '(--readpattern)--readpattern[Print the contents of the named pattern to the terminal]:pattern:_fabric_patterns' \
     '(-L --listmodels)'{-L,--listmodels}'[List all available models]' \
     '(-x --listcontexts)'{-x,--listcontexts}'[List all contexts]' \
     '(-X --listsessions)'{-X,--listsessions}'[List all sessions]' \
     '(-U --updatepatterns)'{-U,--updatepatterns}'[Update patterns]' \
     '(-c --copy)'{-c,--copy}'[Copy to clipboard]' \
     '(-m --model)'{-m,--model}'[Choose model]:model:_fabric_models' \
-    '(-V --vendor)'{-V,--vendor}'[Specify vendor for chosen model (e.g., -V "LM Studio" -m openai/gpt-oss-20b)]:vendor:_fabric_vendors' \
+    '(-V --vendor)'{-V,--vendor}'[Specify vendor for the selected model (e.g., -V "LM Studio" -m openai/gpt-oss-20b)]:vendor:_fabric_vendors' \
     '(--modelContextLength)--modelContextLength[Model context length (only affects ollama)]:length:' \
+    '(--maxTokens)--maxTokens[Maximum tokens the model may generate, including reasoning/thinking tokens (0 = vendor default)]:tokens:' \
     '(-o --output)'{-o,--output}'[Output to file]:file:_files' \
     '(--output-session)--output-session[Output the entire session to the output file]' \
+    '(--extract)--extract[Output only the first fenced code block from the response]' \
+    '(--extract-last)--extract-last[Output only the last fenced code block from the response]' \
     '(-n --latest)'{-n,--latest}'[Number of latest patterns to list (default: 0)]:number:' \
     '(-d --changeDefaultModel)'{-d,--changeDefaultModel}'[Change default model]' \
     '(-y --youtube)'{-y,--youtube}'[YouTube video or play list URL]:youtube url:' \
     '(--playlist)--playlist[Prefer playlist over video if both ids are present in the URL]' \
     '(--transcript)--transcript[Grab transcript from YouTube video and send to chat]' \
     '(--transcript-with-timestamps)--transcript-with-timestamps[Grab transcript from YouTube video with timestamps]' \
+    '(--visual)--visual[Extract visual data from video using OCR and FFmpeg]' \
+    '(--visual-sensitivity)--visual-sensitivity[Tolerance for FFmpeg scene detection (0.0 - 1.0)]:visual sensitivity:' \
+    '(--visual-fps)--visual-fps[Extract a specific number of frames per second instead of using scene detection]:frames per second:' \
     '(--comments)--comments[Grab comments from YouTube video and send to chat]' \
     '(--metadata)--metadata[Output video metadata]' \
     '(--yt-dlp-args)--yt-dlp-args[Additional arguments to pass to yt-dlp]:yt-dlp args:' \
     '(-g --language)'{-g,--language}'[Specify the Language Code for the chat, e.g. -g=en -g=zh]:language:' \
     '(-u --scrape_url)'{-u,--scrape_url}'[Scrape website URL to markdown using Jina AI]:url:' \
     '(-q --scrape_question)'{-q,--scrape_question}'[Search question using Jina AI]:question:' \
+    '(--serply_search)--serply_search[Search Google using Serply]:query:' \
+    '(--firecrawl_search)--firecrawl_search[Search the web using Firecrawl]:query:' \
     '(-e --seed)'{-e,--seed}'[Seed to be used for LMM generation]:seed:' \
     '(--thinking)--thinking[Set reasoning/thinking level]:level:(off low medium high)' \
     '(-w --wipecontext)'{-w,--wipecontext}'[Wipe context]:context:_fabric_contexts' \
@@ -116,13 +126,15 @@ _fabric() {
     '(--input-has-vars)--input-has-vars[Apply variables to user input]' \
     '(--no-variable-replacement)--no-variable-replacement[Disable pattern variable replacement]' \
     '(--dry-run)--dry-run[Show what would be sent to the model without actually sending it]' \
+    '(--print-prompt)--print-prompt[Print the rendered prompt without sending it to a model]' \
     '(--serve)--serve[Serve the Fabric Rest API]' \
     '(--serveOllama)--serveOllama[Serve the Fabric Rest API with ollama endpoints]' \
     '(--address)--address[The address to bind the REST API (default: :8080)]:address:' \
     '(--api-key)--api-key[API key used to secure server routes]:api-key:' \
+    '*--cors-origins[Browser origins that can call the server (repeatable; * for all)]:origin:' \
     '(--config)--config[Path to YAML config file]:config file:_files -g "*.yaml *.yml"' \
     '(--version)--version[Print current version]' \
-    '(--search)--search[Enable web search tool for supported models (Anthropic, OpenAI, Gemini)]' \
+    '(--search)--search[Enable web search tool for supported models (Anthropic, OpenAI, Gemini, Grok)]' \
     '(--search-location)--search-location[Set location for web search results]:location:' \
     '(--image-file)--image-file[Save generated image to specified file path]:image file:_files -g "*.png *.webp *.jpeg *.jpg"' \
     '(--image-size)--image-size[Image dimensions]:size:(1024x1024 1536x1024 1024x1536 auto)' \
@@ -137,6 +149,7 @@ _fabric() {
     '(--listvendors)--listvendors[List all vendors]' \
     '(--voice)--voice[TTS voice name for supported models]:voice:_fabric_gemini_voices' \
     '(--list-gemini-voices)--list-gemini-voices[List all available Gemini TTS voices]' \
+    '(--list-transcription-models)--list-transcription-models[List all available transcription models]' \
     '(--shell-complete-list)--shell-complete-list[Output raw list without headers/formatting (for shell completion)]' \
     '(--suppress-think)--suppress-think[Suppress text enclosed in thinking tags]' \
     '(--think-start-tag)--think-start-tag[Start tag for thinking sections (default: <think>)]:start tag:' \
@@ -145,9 +158,11 @@ _fabric() {
     '(--transcribe-file)--transcribe-file[Audio or video file to transcribe]:audio file:_files -g "*.mp3 *.mp4 *.mpeg *.mpga *.m4a *.wav *.webm"' \
     '(--transcribe-model)--transcribe-model[Model to use for transcription (separate from chat model)]:transcribe model:_fabric_transcription_models' \
     '(--split-media-file)--split-media-file[Split audio/video files larger than 25MB using ffmpeg]' \
-    '(--debug)--debug[Set debug level (0=off, 1=basic, 2=detailed, 3=trace)]:debug level:(0 1 2 3)' \
+    '(--show-metadata)--show-metadata[Print metadata (input/output tokens) to stderr]' \
+    '(--debug)--debug[Set debug level (0=off, 1=basic, 2=detailed, 3=trace, 4=wire)]:debug level:(0 1 2 3 4)' \
     '(--notification)--notification[Send desktop notification when command completes]' \
     '(--notification-command)--notification-command[Custom command to run for notifications]:notification command:' \
+    '(--spotify)--spotify[Spotify podcast or episode URL to grab metadata]:spotify url:' \
     '(-h --help)'{-h,--help}'[Show this help message]' \
     '*:arguments:'
 }

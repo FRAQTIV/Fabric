@@ -1,5 +1,5 @@
 <script lang="ts">
-  export let url: string = 'https://www.buymeacoffee.com/johnconnor.sec';
+  export let url: string = 'https://buymeacoffee.com/kayvansylvan';
   export let text: string = 'Buy me a coffee';
 </script>
 
@@ -7,7 +7,7 @@
 	href={url}
 	target="_blank"
 	rel="noopener noreferrer"
-	class="text-sm px-3 py-1.5 btn variant-filled-tertiary hover:variant-filled-secondary transition-all duration-200 flex items-center gap-2"
+	class="text-sm px-3 py-1.5 btn preset-filled-tertiary-500 hover:preset-filled-secondary-500 transition-all duration-200 flex items-center gap-2"
 >
 	<svg
 		xmlns="http://www.w3.org/2000/svg"

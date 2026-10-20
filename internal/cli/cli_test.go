@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/danielmiessler/fabric/internal/core"
+	"github.com/danielmiessler/fabric/internal/i18n"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -17,5 +17,5 @@ func TestCli(t *testing.T) {
 	os.Args = []string{os.Args[0]}
 	err := Cli("test")
 	assert.Error(t, err)
-	assert.Equal(t, core.NoSessionPatternUserMessages, err.Error())
+	assert.Equal(t, i18n.T("chatter_error_no_session_pattern_user_messages"), err.Error())
 }

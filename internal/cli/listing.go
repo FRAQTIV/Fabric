@@ -5,16 +5,17 @@ import (
 	"os"
 	"strconv"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 
 	"github.com/danielmiessler/fabric/internal/core"
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/danielmiessler/fabric/internal/plugins/ai"
 	"github.com/danielmiessler/fabric/internal/plugins/ai/gemini"
 	"github.com/danielmiessler/fabric/internal/plugins/db/fsdb"
 )
 
-// handleListingCommands handles listing-related commands
-// Returns (handled, error) where handled indicates if a command was processed and should exit
+// handleListingCommands runs the list and print commands.
+// It returns handled = true when a command ran and the caller must exit.
 func handleListingCommands(currentFlags *Flags, fabricDb *fsdb.Db, registry *core.PluginRegistry) (handled bool, err error) {
 	if currentFlags.LatestPatterns != "0" {
 		var parsedToInt int
@@ -28,7 +29,32 @@ func handleListingCommands(currentFlags *Flags, fabricDb *fsdb.Db, registry *cor
 		return true, nil
 	}
 
+	if currentFlags.ReadPattern != "" {
+		err = fabricDb.Patterns.PrintPattern(currentFlags.ReadPattern)
+		return true, err
+	}
+
 	if currentFlags.ListPatterns {
+		var names []string
+		if names, err = fabricDb.Patterns.GetNames(); err != nil {
+			return true, err
+		}
+
+		if len(names) == 0 && !currentFlags.ShellCompleteOutput {
+			fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println(i18n.T("patterns_not_found_header"))
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Printf("\n%s\n", i18n.T("patterns_required_to_work"))
+			fmt.Println()
+			fmt.Println(i18n.T("patterns_option_run_setup"))
+			fmt.Printf("  %s\n", i18n.T("patterns_option_run_setup_command"))
+			fmt.Println()
+			fmt.Println(i18n.T("patterns_option_run_update"))
+			fmt.Printf("  %s\n", i18n.T("patterns_option_run_update_command"))
+			fmt.Println()
+			return true, nil
+		}
+
 		err = fabricDb.Patterns.ListNames(currentFlags.ShellCompleteOutput)
 		return true, err
 	}
@@ -38,6 +64,11 @@ func handleListingCommands(currentFlags *Flags, fabricDb *fsdb.Db, registry *cor
 		if models, err = registry.VendorManager.GetModels(); err != nil {
 			return true, err
 		}
+
+		if currentFlags.Vendor != "" {
+			models = models.FilterByVendor(currentFlags.Vendor)
+		}
+
 		if currentFlags.ShellCompleteOutput {
 			models.Print(true)
 		} else {
@@ -80,7 +111,6 @@ func handleListingCommands(currentFlags *Flags, fabricDb *fsdb.Db, registry *cor
 	return false, nil
 }
 
-// listTranscriptionModels lists all available transcription models
 func listTranscriptionModels(shellComplete bool) {
 	models := []string{
 		string(openai.AudioModelWhisper1),
@@ -93,7 +123,7 @@ func listTranscriptionModels(shellComplete bool) {
 			fmt.Println(model)
 		}
 	} else {
-		fmt.Println("Available transcription models:")
+		fmt.Println(i18n.T("available_transcription_models"))
 		for _, model := range models {
 			fmt.Printf("  %s\n", model)
 		}

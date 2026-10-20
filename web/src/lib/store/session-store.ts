@@ -15,7 +15,6 @@ export const sessionAPI = {
       const response = await fetch(`/api/sessions/names`);
       const sessionNames: string[] = await response.json();
 
-      // Add null check and default to empty array
       if (!sessionNames) {
         sessions.set([]);
         return [];
@@ -87,6 +86,21 @@ export const sessionAPI = {
       return content;
     } catch (error) {
       toastService.error(error instanceof Error ? error.message : 'Failed to import session');
+      throw error;
+    }
+  },
+
+  async loadSessionMessages(sessionName: string): Promise<Message[]> {
+    try {
+      const response = await fetch(`/api/sessions/${sessionName}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load session: ${response.statusText}`);
+      }
+      const data = await response.json();
+      const messages = Array.isArray(data.Message) ? data.Message : [];
+      return messages;
+    } catch (error) {
+      console.error(`Error loading session messages for ${sessionName}:`, error);
       throw error;
     }
   }

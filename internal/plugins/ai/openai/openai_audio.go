@@ -3,6 +3,7 @@ package openai
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,11 +11,19 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/danielmiessler/fabric/internal/i18n"
 	debuglog "github.com/danielmiessler/fabric/internal/log"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 )
+
+type transcriptionResult struct {
+	index int
+	text  string
+	err   error
+}
 
 // MaxAudioFileSize defines the maximum allowed size for audio uploads (25MB).
 const MaxAudioFileSize int64 = 25 * 1024 * 1024
@@ -26,7 +35,6 @@ var AllowedTranscriptionModels = []string{
 	string(openai.AudioModelGPT4oTranscribe),
 }
 
-// allowedAudioExtensions defines the supported input file extensions.
 var allowedAudioExtensions = map[string]struct{}{
 	".mp3":  {},
 	".mp4":  {},
@@ -45,12 +53,12 @@ func (o *Client) TranscribeFile(ctx context.Context, filePath, model string, spl
 	}
 
 	if !slices.Contains(AllowedTranscriptionModels, model) {
-		return "", fmt.Errorf("model '%s' is not supported for transcription", model)
+		return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("openai_audio_model_not_supported_for_transcription"), model))
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if _, ok := allowedAudioExtensions[ext]; !ok {
-		return "", fmt.Errorf("unsupported audio format '%s'", ext)
+		return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("openai_audio_unsupported_audio_format"), ext))
 	}
 
 	info, err := os.Stat(filePath)
@@ -62,9 +70,9 @@ func (o *Client) TranscribeFile(ctx context.Context, filePath, model string, spl
 	var cleanup func()
 	if info.Size() > MaxAudioFileSize {
 		if !split {
-			return "", fmt.Errorf("file %s exceeds 25MB limit; use --split-media-file to enable automatic splitting", filePath)
+			return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("openai_audio_file_exceeds_limit_enable_split"), filePath))
 		}
-		debuglog.Log("File %s is larger than the size limit... breaking it up into chunks...\n", filePath)
+		debuglog.Log("%s\n", fmt.Sprintf(i18n.T("openai_audio_file_exceeds_limit_splitting"), filePath))
 		if files, cleanup, err = splitAudioFile(filePath, ext, MaxAudioFileSize); err != nil {
 			return "", err
 		}
@@ -73,37 +81,65 @@ func (o *Client) TranscribeFile(ctx context.Context, filePath, model string, spl
 		files = []string{filePath}
 	}
 
-	var builder strings.Builder
+	resultsChan := make(chan transcriptionResult, len(files))
+	var wg sync.WaitGroup
+
 	for i, f := range files {
-		debuglog.Log("Using model %s to transcribe part %d (file name: %s)...\n", model, i+1, f)
-		var chunk *os.File
-		if chunk, err = os.Open(f); err != nil {
-			return "", err
+		wg.Add(1)
+		go func(index int, filePath string) {
+			defer wg.Done()
+			debuglog.Log("%s\n", fmt.Sprintf(i18n.T("openai_audio_using_model_to_transcribe_part"), model, index+1, filePath))
+
+			chunk, openErr := os.Open(filePath)
+			if openErr != nil {
+				resultsChan <- transcriptionResult{index: index, err: openErr}
+				return
+			}
+			defer chunk.Close()
+
+			params := openai.AudioTranscriptionNewParams{
+				File:  chunk,
+				Model: openai.AudioModel(model),
+			}
+			resp, transcribeErr := o.ApiClient.Audio.Transcriptions.New(ctx, params)
+			if transcribeErr != nil {
+				resultsChan <- transcriptionResult{index: index, err: withProviderErrorMessage(transcribeErr)}
+				return
+			}
+			resultsChan <- transcriptionResult{index: index, text: resp.Text}
+		}(i, f)
+	}
+
+	wg.Wait()
+	close(resultsChan)
+
+	results := make([]transcriptionResult, 0, len(files))
+	for result := range resultsChan {
+		if result.err != nil {
+			return "", result.err
 		}
-		params := openai.AudioTranscriptionNewParams{
-			File:  chunk,
-			Model: openai.AudioModel(model),
-		}
-		var resp *openai.Transcription
-		resp, err = o.ApiClient.Audio.Transcriptions.New(ctx, params)
-		chunk.Close()
-		if err != nil {
-			return "", err
-		}
+		results = append(results, result)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].index < results[j].index
+	})
+
+	var builder strings.Builder
+	for i, result := range results {
 		if i > 0 {
 			builder.WriteString(" ")
 		}
-		builder.WriteString(resp.Text)
+		builder.WriteString(result.text)
 	}
 
 	return builder.String(), nil
 }
 
-// splitAudioFile splits the source file into chunks smaller than maxSize using ffmpeg.
-// It returns the list of chunk file paths and a cleanup function.
+// splitAudioFile halves the ffmpeg segment time until no chunk is larger than maxSize.
 func splitAudioFile(src, ext string, maxSize int64) (files []string, cleanup func(), err error) {
 	if _, err = exec.LookPath("ffmpeg"); err != nil {
-		return nil, nil, fmt.Errorf("ffmpeg not found: please install it")
+		return nil, nil, errors.New(i18n.T("openai_audio_ffmpeg_not_found_install"))
 	}
 
 	var dir string
@@ -112,15 +148,15 @@ func splitAudioFile(src, ext string, maxSize int64) (files []string, cleanup fun
 	}
 	cleanup = func() { os.RemoveAll(dir) }
 
-	segmentTime := 600 // start with 10 minutes
+	segmentTime := 600 // seconds
 	for {
 		pattern := filepath.Join(dir, "chunk-%03d"+ext)
-		debuglog.Log("Running ffmpeg to split audio into %d-second chunks...\n", segmentTime)
+		debuglog.Log("%s\n", fmt.Sprintf(i18n.T("openai_audio_running_ffmpeg_split_chunks"), segmentTime))
 		cmd := exec.Command("ffmpeg", "-y", "-i", src, "-f", "segment", "-segment_time", fmt.Sprintf("%d", segmentTime), "-c", "copy", pattern)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err = cmd.Run(); err != nil {
-			return nil, cleanup, fmt.Errorf("ffmpeg failed: %v: %s", err, stderr.String())
+			return nil, cleanup, fmt.Errorf("%s", fmt.Sprintf(i18n.T("openai_audio_ffmpeg_failed"), err, stderr.String()))
 		}
 
 		if files, err = filepath.Glob(filepath.Join(dir, "chunk-*"+ext)); err != nil {
@@ -146,7 +182,7 @@ func splitAudioFile(src, ext string, maxSize int64) (files []string, cleanup fun
 			_ = os.Remove(f)
 		}
 		if segmentTime <= 1 {
-			return nil, cleanup, fmt.Errorf("unable to split file into acceptable size chunks")
+			return nil, cleanup, errors.New(i18n.T("openai_audio_unable_to_split_acceptable_size_chunks"))
 		}
 		segmentTime /= 2
 	}

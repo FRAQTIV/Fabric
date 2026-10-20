@@ -1,10 +1,13 @@
 package plugins
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
 )
 
 const AnswerReset = "reset"
@@ -34,6 +37,16 @@ func (o *PluginBase) GetName() string {
 	return o.Name
 }
 
+// NewVendorPluginBase creates a standardized PluginBase for AI vendor plugins.
+// This centralizes the common initialization pattern used by all vendors.
+func NewVendorPluginBase(name string, configure func() error) *PluginBase {
+	return &PluginBase{
+		Name:            name,
+		EnvNamePrefix:   BuildEnvVariablePrefix(name),
+		ConfigureCustom: configure,
+	}
+}
+
 func (o *PluginBase) GetSetupDescription() (ret string) {
 	if ret = o.SetupDescription; ret == "" {
 		ret = o.GetName()
@@ -55,8 +68,18 @@ func (o *PluginBase) AddSetupQuestionCustom(name string, required bool, question
 	setting := o.AddSetting(name, required)
 	ret = &SetupQuestion{Setting: setting, Question: question}
 	if ret.Question == "" {
-		ret.Question = fmt.Sprintf("Enter your %v %v", o.Name, strings.ToUpper(name))
+		ret.Question = fmt.Sprintf(i18n.T("plugin_enter_value"), o.Name, strings.ToUpper(name))
 	}
+	o.SetupQuestions = append(o.SetupQuestions, ret)
+	return
+}
+
+// AddSetupQuestionWithEnvName creates a setup question with an explicit environment variable name.
+// This is useful when you want the environment variable name to remain constant across languages.
+// The envVarName is used for the environment variable, while the question is localized.
+func (o *PluginBase) AddSetupQuestionWithEnvName(envVarName string, required bool, question string) (ret *SetupQuestion) {
+	setting := o.AddSetting(envVarName, required)
+	ret = &SetupQuestion{Setting: setting, Question: question}
 	o.SetupQuestions = append(o.SetupQuestions, ret)
 	return
 }
@@ -70,7 +93,7 @@ func (o *PluginBase) AddSetupQuestionCustomBool(name string, required bool, ques
 	setting.Type = SettingTypeBool
 	ret = &SetupQuestion{Setting: setting, Question: question}
 	if ret.Question == "" {
-		ret.Question = fmt.Sprintf("Enable %v %v (true/false)", o.Name, strings.ToUpper(name))
+		ret.Question = fmt.Sprintf(i18n.T("plugin_enable_bool_question"), o.Name, strings.ToUpper(name))
 	}
 	o.SetupQuestions = append(o.SetupQuestions, ret)
 	return
@@ -92,13 +115,16 @@ func (o *PluginBase) Setup() (err error) {
 		return
 	}
 
-	err = o.Configure()
+	// After Setup, do not re-validate the user input. Ask() validates input and allows explicit reset.
+	if o.ConfigureCustom != nil {
+		err = o.ConfigureCustom()
+	}
 	return
 }
 
 func (o *PluginBase) SetupOrSkip() (err error) {
 	if err = o.Setup(); err != nil {
-		fmt.Printf("[%v] skipped\n", o.GetName())
+		fmt.Printf(i18n.T("plugin_setup_skipped"), o.GetName())
 	}
 	return
 }
@@ -107,14 +133,18 @@ func (o *PluginBase) SetupFillEnvFileContent(fileEnvFileContent *bytes.Buffer) {
 	o.Settings.FillEnvFileContent(fileEnvFileContent)
 }
 
+// NeedsRawMode returns false by default. Vendors that need raw mode
+// (e.g., perplexity, ollama, openai for certain models) override this method.
+func (o *PluginBase) NeedsRawMode(modelName string) bool {
+	return false
+}
+
 func NewSetting(envVariable string, required bool) *Setting {
 	return &Setting{
 		EnvVariable: envVariable,
 		Required:    required,
 	}
 }
-
-// In plugins/plugin.go
 
 type Setting struct {
 	EnvVariable string
@@ -166,7 +196,7 @@ func ParseBool(val string) (bool, error) {
 	case "0", "false", "no", "off":
 		return false, nil
 	}
-	return false, fmt.Errorf("invalid bool: %q", val)
+	return false, fmt.Errorf(i18n.T("plugin_invalid_bool"), val)
 }
 
 type SetupQuestion struct {
@@ -187,34 +217,35 @@ func (o *SetupQuestion) Ask(label string) (err error) {
 		if v, err := ParseBool(o.Value); err == nil && v {
 			current = "true"
 		}
-		fmt.Printf("%v%v (true/false, leave empty for '%s' or type '%v' to remove the value):\n",
-			prefix, o.Question, current, AnswerReset)
+		fmt.Printf(i18n.T("plugin_question_bool"), prefix, o.Question, current, AnswerReset)
 	} else if o.Value != "" {
-		fmt.Printf("%v%v (leave empty for '%s' or type '%v' to remove the value):\n",
-			prefix, o.Question, o.Value, AnswerReset)
+		fmt.Printf(i18n.T("plugin_question_with_default"), prefix, o.Question, o.Value, AnswerReset)
 	} else {
-		fmt.Printf("%v%v (leave empty to skip):\n", prefix, o.Question)
+		fmt.Printf(i18n.T("plugin_question_optional"), prefix, o.Question)
 	}
-	var answer string
-	fmt.Scanln(&answer)
-	answer = strings.TrimRight(answer, "\n")
+	answer, _ := readLine()
+	isReset := strings.ToLower(answer) == AnswerReset
 	if answer == "" {
 		answer = o.Value
-	} else if strings.ToLower(answer) == AnswerReset {
+	} else if isReset {
 		answer = ""
 	}
-	err = o.OnAnswer(answer)
+	err = o.OnAnswerWithReset(answer, isReset)
 	return
 }
 
 func (o *SetupQuestion) OnAnswer(answer string) (err error) {
+	return o.OnAnswerWithReset(answer, false)
+}
+
+func (o *SetupQuestion) OnAnswerWithReset(answer string, isReset bool) (err error) {
 	if o.Type == SettingTypeBool {
 		if answer == "" {
 			o.Value = ""
 		} else {
 			_, err := ParseBool(answer)
 			if err != nil {
-				return fmt.Errorf("invalid boolean value: %v", answer)
+				return fmt.Errorf(i18n.T("plugin_invalid_boolean_value"), answer)
 			}
 			o.Value = strings.ToLower(answer)
 		}
@@ -226,13 +257,17 @@ func (o *SetupQuestion) OnAnswer(answer string) (err error) {
 			return
 		}
 	}
+	// Do not validate when the user explicitly resets a required value.
+	if isReset {
+		return nil
+	}
 	err = o.IsValidErr()
 	return
 }
 
 func (o *Setting) IsValidErr() (err error) {
 	if !o.IsValid() {
-		err = fmt.Errorf("%v=%v, is not valid", o.EnvVariable, o.Value)
+		err = fmt.Errorf(i18n.T("plugin_setting_not_valid"), o.EnvVariable, o.Value)
 	}
 	return
 }
@@ -303,5 +338,54 @@ func BuildEnvVariablePrefix(name string) (ret string) {
 
 func BuildEnvVariable(name string) string {
 	name = strings.TrimSpace(name)
-	return strings.ReplaceAll(strings.ToUpper(name), " ", "_")
+	name = strings.ToUpper(name)
+	name = strings.ReplaceAll(name, " ", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, ".", "_")
+	return name
+}
+
+// stdinReader is shared between prompts. A bufio.Reader reads ahead, so a
+// reader created for every question would drop the rest of the buffered input,
+// which breaks scripted answers such as `printf 'a\nb\n' | fabric --setup`.
+// The reader is rebuilt when os.Stdin changes, which keeps redirected input
+// working for callers that swap the file.
+var (
+	stdinReader *bufio.Reader
+	stdinSource *os.File
+)
+
+func stdinLineReader() *bufio.Reader {
+	if stdinReader == nil || stdinSource != os.Stdin {
+		stdinReader = bufio.NewReader(os.Stdin)
+		stdinSource = os.Stdin
+	}
+	return stdinReader
+}
+
+// readLine reads a single line from stdin and accepts either \n or \r as the
+// line ending. Terminals such as kitty on macOS send a bare \r when Enter is
+// pressed, and fmt.Scanln waited for a \n that never arrived.
+func readLine() (string, error) {
+	reader := stdinLineReader()
+
+	var line []rune
+	for {
+		ch, _, err := reader.ReadRune()
+		if err != nil {
+			return string(line), err
+		}
+		switch ch {
+		case '\n':
+			return string(line), nil
+		case '\r':
+			// Drop the \n of a \r\n ending so it is not read as an empty
+			// answer at the next prompt.
+			if next, _, err := reader.ReadRune(); err == nil && next != '\n' {
+				_ = reader.UnreadRune()
+			}
+			return string(line), nil
+		}
+		line = append(line, ch)
+	}
 }

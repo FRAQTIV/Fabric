@@ -1,12 +1,13 @@
 package exolab
 
 import (
+	"context"
 	"strings"
 
 	"github.com/danielmiessler/fabric/internal/plugins"
 	"github.com/danielmiessler/fabric/internal/plugins/ai/openai"
-	openaiapi "github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	openaiapi "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 func NewClient() (ret *Client) {
@@ -42,7 +43,7 @@ func (oi *Client) configure() (err error) {
 	return
 }
 
-func (oi *Client) ListModels() (ret []string, err error) {
+func (oi *Client) ListModels(context.Context) (ret []string, err error) {
 	ret = oi.apiModels
 	return
 }

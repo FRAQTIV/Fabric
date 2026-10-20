@@ -1,0 +1,75 @@
+package azure_entra
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/danielmiessler/fabric/internal/i18n"
+	"github.com/danielmiessler/fabric/internal/plugins"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/azurecommon"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/openai"
+	openaiapi "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/azure"
+)
+
+func NewClient() (ret *Client) {
+	ret = &Client{}
+	ret.Client = openai.NewClientCompatibleNoSetupQuestions("AzureEntra", ret.configure)
+
+	ret.ApiBaseURL = ret.AddSetupQuestionCustom("API Base URL", true,
+		i18n.T("azure_base_url_question"))
+	ret.ApiDeployments = ret.AddSetupQuestionCustom("deployments", true,
+		i18n.T("azure_deployments_question"))
+	ret.ApiVersion = ret.AddSetupQuestionCustom("API Version", false,
+		i18n.T("azure_api_version_question"))
+
+	return
+}
+
+type Client struct {
+	*openai.Client // ApiBaseURL is inherited from the embedded openai.Client
+	ApiDeployments *plugins.SetupQuestion
+	ApiVersion     *plugins.SetupQuestion
+
+	apiDeployments []string
+}
+
+func (c *Client) configure() error {
+	c.apiDeployments = azurecommon.ParseDeployments(c.ApiDeployments.Value)
+	if len(c.apiDeployments) == 0 {
+		return errors.New(i18n.T("azure_deployments_required"))
+	}
+
+	baseURL := strings.TrimSpace(c.ApiBaseURL.Value)
+	if baseURL == "" {
+		return errors.New(i18n.T("azure_base_url_required"))
+	}
+
+	apiVersion := strings.TrimSpace(c.ApiVersion.Value)
+	if apiVersion == "" {
+		apiVersion = azurecommon.DefaultAPIVersion
+		c.ApiVersion.Value = apiVersion
+	}
+
+	credential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return fmt.Errorf("%s: %w", i18n.T("azure_credential_failure"), err)
+	}
+
+	// openai-go v3 rejects Azure credentials without azure.WithEndpoint.
+	// WithEndpoint also adds the deployment name to the request path.
+	client := openaiapi.NewClient(
+		azure.WithEndpoint(baseURL, apiVersion),
+		azure.WithTokenCredential(credential),
+	)
+	c.ApiClient = &client
+	return nil
+}
+
+func (c *Client) ListModels(context.Context) (ret []string, err error) {
+	ret = c.apiDeployments
+	return
+}

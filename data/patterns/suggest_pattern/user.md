@@ -58,6 +58,10 @@ Format predictions for tracking/verification in markdown prediction logs.
 
 Extract insights from AI agent interactions, focusing on learning.
 
+### greybeard_secure_prompt_engineer
+
+Create secure, production-grade system prompts with injection test suites and evaluation rubrics.
+
 ### improve_prompt
 
 Enhance AI prompts by refining clarity and specificity.
@@ -65,6 +69,10 @@ Enhance AI prompts by refining clarity and specificity.
 ### judge_output
 
 Evaluate AI outputs for quality and accuracy.
+
+### judge_ultimate_law
+
+Derive Ultimate Law verdicts step by step through an executable rulebook of If/then rules and integrity constraints, with derivation chains and the facts that would flip each verdict.
 
 ### rate_ai_response
 
@@ -77,10 +85,6 @@ Assess AI outputs against criteria, providing scores and feedback.
 ### raw_query
 
 Process direct queries by interpreting intent.
-
-### solve_with_cot
-
-Solve problems using chain-of-thought reasoning.
 
 ### suggest_pattern
 
@@ -120,6 +124,10 @@ Analyze user comments for sentiment, extract praise/criticism, and summarize rec
 
 Analyze debates identifying arguments, agreements, and emotional intensity.
 
+### analyze_discord_structure
+
+Analyze Discord server structures for organizational issues, permissions, and optimization.
+
 ### analyze_interviewer_techniques
 
 Study interviewer questions/methods to identify effective interview techniques.
@@ -131,6 +139,10 @@ Examine battles analyzing strategic decisions to extract military lessons.
 ### analyze_mistakes
 
 Analyze past errors to prevent similar mistakes in predictions/decisions.
+
+### analyze_monetization_opportunities
+
+Identify affiliate, sponsorship, digital product, and community revenue opportunities in creator content aligned with audience intent.
 
 ### analyze_paper
 
@@ -192,13 +204,37 @@ Analyze Terraform plans for infrastructure changes, security risks, and cost imp
 
 Apply standardized content tags to categorize topics like AI, cybersecurity, politics, and culture.
 
+### audit_consent
+
+Evaluate whether consent is genuine or manufactured by analyzing power asymmetries, information gaps, and coercion.
+
+### audit_transparency
+
+Audit decisions and systems for explainability, assessing whether opacity is justified or conceals harm.
+
 ### check_agreement
 
 Review contract to identify stipulations, issues, and changes for negotiation.
 
+### check_falsifiability
+
+Evaluate whether claims, definitions, and arguments are falsifiable and can be proven wrong.
+
+### chinese_contract_review
+
+Review Chinese contracts under PRC Civil Code for legal risks and missing clauses.
+
+### chinese_poetry_analysis
+
+Analyze classical Chinese poetry for imagery, meter, allusions and literary context.
+
 ### compare_and_contrast
 
 Create comparisons table, highlighting key differences and similarities.
+
+### concall_summary
+
+Analyze earnings call transcripts to extract management insights, financial metrics, and investment implications.
 
 ### create_ai_jobs_analysis
 
@@ -207,6 +243,14 @@ Identify automation risks and career resilience strategies.
 ### create_better_frame
 
 Develop positive mental frameworks for challenging situations.
+
+### create_golden_rules
+
+Extract enforceable rules from codebases to prevent common mistakes and ensure consistency.
+
+### create_story_about_people_interaction
+
+Analyze two personas, compare their dynamics, and craft a realistic, character-driven story from those insights.
 
 ### create_idea_compass
 
@@ -220,9 +264,25 @@ Break down tasks into hierarchical, actionable components via decomposition.
 
 Generate single-word tags for content categorization and mind mapping.
 
+### detect_mind_virus
+
+Detect manipulative belief systems that spread by exploiting cognitive shortcuts while resisting correction.
+
+### detect_silent_victims
+
+Identify parties harmed by actions or systems who cannot speak up due to power, awareness, or temporal gaps.
+
+### explain_terms_and_conditions
+
+Analyze legal agreements translating complex legalese into plain English with red flags.
+
 ### extract_core_message
 
 Distill the fundamental message into a single, impactful sentence.
+
+### extract_bd_ideas
+
+Extract actionable ideas from content and transform into bd create commands.
 
 ### extract_extraordinary_claims
 
@@ -296,6 +356,26 @@ Extract/analyze user job stories to understand motivations.
 
 Categorize/evaluate content by assigning labels and ratings.
 
+### lens_deconstructive
+
+Read texts deconstructively to expose binaries, absences and self-contradictions.
+
+### lens_rhetorical
+
+Analyze how texts persuade through ethos, pathos, logos and kairos.
+
+### lens_stoic
+
+Read texts philosophically to trace intellectual lineage, tensions and unasked questions.
+
+### model_as_sherlock_freud
+
+Builds psychological models using detective reasoning and psychoanalytic insight.
+
+### predict_person_actions
+
+Predicts behavioral responses based on psychological profiles and challenges
+
 ### prepare_7s_strategy
 
 Apply McKinsey 7S framework to analyze organizational alignment.
@@ -327,6 +407,14 @@ Convert board meeting transcripts into formal meeting notes for corporate record
 ### summarize_prompt
 
 Summarize AI prompts to identify instructions and outputs.
+
+### suggest_gt_command
+
+Suggest optimal Gas Town (GT) commands based on user intent and task description.
+
+### suggest_openclaw_pattern
+
+Suggest optimal Openclaw CLI commands based on user intent and task description.
 
 ### t_analyze_challenge_handling
 
@@ -360,11 +448,19 @@ Apply adversarial thinking to identify weaknesses.
 
 Generate annual reviews by analyzing achievements and learnings.
 
+### ultimate_law_safety
+
+Evaluate actions and policies against the Ultimate Law framework to identify violations creating unwilling victims.
+
 ## EXTRACTION PATTERNS
 
 ### create_aphorisms
 
 Compile relevant, attributed aphorisms from historical figures on topics.
+
+### create_golden_rules
+
+Extract enforceable rules from codebases to prevent common mistakes and ensure consistency.
 
 ### create_upgrade_pack
 
@@ -374,6 +470,10 @@ Extract world model updates/algorithms to improve decision-making.
 
 Organize video content into timestamped chapters highlighting key topics.
 
+### extract_affiliate_products
+
+Extract commercial products, tools, and brands from transcripts, separating sponsored from organic mentions with commission tier estimates.
+
 ### extract_algorithm_update_recommendations
 
 Extract recommendations for improving algorithms, focusing on steps.
@@ -381,6 +481,10 @@ Extract recommendations for improving algorithms, focusing on steps.
 ### extract_alpha
 
 Extracts the most novel and surprising ideas ("alpha") from content, inspired by information theory.
+
+### extract_all_quotes
+
+Extract all inspirational and educational quotes from content including podcasts and essays.
 
 ### extract_article_wisdom
 
@@ -394,6 +498,14 @@ Extract novel ideas from books to inspire new projects.
 
 Extract/prioritize practical advice from books.
 
+### extract_bd_ideas
+
+Extract actionable ideas from content and transform into bd create commands.
+
+### extract_characters
+
+Identify all characters (human and non-human), resolve their aliases and pronouns into canonical names, and produce detailed descriptions of each character's role, motivations, and interactions ranked by narrative importance.
+
 ### extract_controversial_ideas
 
 Analyze contentious viewpoints while maintaining objective analysis.
@@ -401,6 +513,10 @@ Analyze contentious viewpoints while maintaining objective analysis.
 ### extract_domains
 
 Extract key content and source.
+
+### extract_ethical_framework
+
+Extract and analyze the implicit ethical framework embedded in policies, proposals, or any prescriptive text.
 
 ### extract_ideas
 
@@ -454,6 +570,10 @@ Extract/classify hard/soft skills from job descriptions into skill inventory.
 
 Extract/organize sponsorship info, including names and messages.
 
+### extract_video_commerce_entities
+
+Identify every commercially relevant entity in a video transcript — products, tools, brands, services — with category, mention type, and purchase likelihood.
+
 ### extract_videoid
 
 Extract/parse video IDs and URLs to create video lists.
@@ -470,9 +590,9 @@ Extract learnings from DMs, focusing on personal growth.
 
 Extract pure wisdom from content without metadata.
 
-### extract_wisdom_short
+### extract_wisdom_with_attribution
 
-Extract condensed  insightful ideas and recommendations focusing on life wisdom.
+Extract insightful ideas and recommendations with speaker attribution for quotes.
 
 ### t_extract_intro_sentences
 
@@ -487,6 +607,10 @@ Extract panel topics to create engaging discussions.
 ### capture_thinkers_work
 
 Extract key concepts, background, and ideas from notable thinkers' work.
+
+### chinese_article_summary
+
+Summarize long Chinese articles into concise, objective Chinese summaries.
 
 ### create_5_sentence_summary
 
@@ -558,6 +682,10 @@ Transform content into academic papers using LaTeX layout.
 
 Create step-by-step DIY tutorials with clear instructions and materials.
 
+### create_design_system
+
+Create comprehensive CSS design systems with tokens, typography, spacing, and components.
+
 ### create_formal_email
 
 Compose professional emails with proper tone and structure.
@@ -574,6 +702,14 @@ Write concise newsletter content focusing on key insights.
 
 Craft compelling podcast/show intros to engage audience.
 
+### create_slides
+
+Transform content into visual Reveal.js HTML slideshows with minimal text and rich SVG illustrations.
+
+### create_story_about_people_interaction
+
+Analyze two personas, compare their dynamics, and craft a realistic, character-driven story from those insights.
+
 ### create_story_explanation
 
 Transform complex concepts into clear, engaging narratives.
@@ -589,6 +725,14 @@ Transform technical docs into clearer explanations with examples.
 ### explain_terms
 
 Create glossaries of advanced terms with definitions and analogies.
+
+### fix_typos
+
+Proofreads and corrects typos, spelling, grammar, and punctuation errors.
+
+### generate_frontmatter
+
+Generate YAML frontmatter with tags, aliases and summary for PKM notes.
 
 ### humanize
 
@@ -656,6 +800,14 @@ Generate appropriate responses to technical interview questions.
 
 Expert software dev. guidance focusing on Java, Spring, frontend, and best practices.
 
+### chinese_code_review
+
+Review code for correctness, security and performance, with feedback in Chinese.
+
+### create_bd_issue
+
+Transform natural language descriptions into optimal bd create commands for issue tracking.
+
 ### coding_master
 
 Explain coding concepts/languages for beginners
@@ -672,9 +824,17 @@ Design coding projects with clear architecture, steps, and best practices.
 
 Create software architecture docs using C4 model.
 
+### create_design_system
+
+Create comprehensive CSS design systems with tokens, typography, spacing, and components.
+
 ### create_git_diff_commit
 
 Generate clear git commit messages and commands for code changes.
+
+### create_golden_rules
+
+Extract enforceable rules from codebases to prevent common mistakes and ensure consistency.
 
 ### create_loe_document
 
@@ -695,6 +855,10 @@ Analyze/explain code, security tool outputs, and configs.
 ### explain_project
 
 Create project overviews with instructions and usage examples.
+
+### extract_bd_ideas
+
+Extract actionable ideas from content and transform into bd create commands.
 
 ### extract_poc
 
@@ -719,6 +883,14 @@ Performs a comprehensive code review, providing detailed feedback on correctness
 ### review_design
 
 Evaluate software designs for scalability and security.
+
+### suggest_gt_command
+
+Suggest optimal Gas Town (GT) commands based on user intent and task description.
+
+### suggest_openclaw_pattern
+
+Suggest optimal Openclaw CLI commands based on user intent and task description.
 
 ### summarize_git_changes
 
@@ -810,6 +982,10 @@ Create narratives for security program improvements in remediation efficiency.
 
 Extract techniques from CTF writeups to create learning resources.
 
+### greybeard_secure_prompt_engineer
+
+Create secure, production-grade system prompts with injection test suites and evaluation rubrics.
+
 ### improve_report_finding
 
 Enhance security report by improving clarity and accuracy.
@@ -832,9 +1008,17 @@ Create Semgrep rules for static code analysis.
 
 ## BUSINESS PATTERNS
 
+### analyze_discord_structure
+
+Analyze Discord server structures for organizational issues, permissions, and optimization.
+
 ### create_hormozi_offer
 
 Create compelling business offers using Alex Hormozi's methodology.
+
+### eisenhower_matrix
+
+Sort tasks into Eisenhower quadrants by urgency and importance, then make a weekly focus plan.
 
 ### extract_business_ideas
 
@@ -872,6 +1056,14 @@ Convert content into flashcard format for learning.
 
 ## VISUALIZATION PATTERNS
 
+### create_conceptmap
+
+Transform unstructured text or markdown content into interactive HTML concept maps using Vis.js by extracting key concepts and their logical relationships.
+
+### create_design_system
+
+Create comprehensive CSS design systems with tokens, typography, spacing, and components.
+
 ### create_excalidraw_visualization
 
 Create visualizations using Excalidraw.
@@ -900,6 +1092,10 @@ Transform concepts into visual diagrams using Mermaid syntax.
 
 Create Mermaid diagrams to visualize workflows in documentation.
 
+### create_slides
+
+Transform content into visual Reveal.js HTML slideshows with minimal text and rich SVG illustrations.
+
 ### create_visualization
 
 Transform concepts to ASCII art with explanations of relationships.
@@ -910,6 +1106,10 @@ Visualize missions and goals to clarify relationships.
 
 ## CONVERSION PATTERNS
 
+### chinese_news_translate
+
+Translate English news articles into natural, journalistic Chinese.
+
 ### convert_to_markdown
 
 Convert content to markdown, preserving original content and structure.
@@ -918,13 +1118,13 @@ Convert content to markdown, preserving original content and structure.
 
 Extract data and convert to CSV, preserving data integrity.
 
-### get_youtube_rss
-
-Generate RSS feed URLs for YouTube channels.
-
 ### sanitize_broken_html_to_markdown
 
 Clean/convert malformed HTML to markdown.
+
+### create_slides
+
+Transform content into visual Reveal.js HTML slideshows with minimal text and rich SVG illustrations.
 
 ### translate
 
@@ -941,6 +1141,10 @@ Identify neglected goals to surface opportunities.
 ### create_story_about_person
 
 Infer everyday challenges and realistic coping strategies from a psychological profile and craft an empathetic 500–700-word story consistent with the character.
+
+### explain_terms_and_conditions
+
+Analyze legal agreements translating complex legalese into plain English with red flags.
 
 ### extract_recipe
 
@@ -975,3 +1179,9 @@ Summarize RPG sessions capturing events, combat, and narrative.
 ### extract_jokes
 
 Extract/categorize jokes, puns, and witty remarks.
+
+## WELLNESS PATTERNS
+
+### recommend_yoga_practice
+
+Provides personalized yoga sequences, meditation guidance, and holistic lifestyle advice based on individual profiles.

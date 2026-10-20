@@ -1,6 +1,7 @@
 package lang
 
 import (
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/danielmiessler/fabric/internal/plugins"
 	"golang.org/x/text/language"
 )
@@ -11,14 +12,14 @@ func NewLanguage() (ret *Language) {
 	ret = &Language{}
 
 	ret.PluginBase = &plugins.PluginBase{
-		Name:             label,
-		SetupDescription: "Language - Default AI Vendor Output Language",
+		Name:             i18n.T("language_label"),
+		SetupDescription: i18n.T("language_setup_description") + " " + i18n.T("optional_marker"),
 		EnvNamePrefix:    plugins.BuildEnvVariablePrefix(label),
 		ConfigureCustom:  ret.configure,
 	}
 
-	ret.DefaultLanguage = ret.AddSetupQuestionCustom("Output", false,
-		"Enter your default output language (for example: zh_CN)")
+	ret.DefaultLanguage = ret.AddSetupQuestionWithEnvName("Output", false,
+		i18n.T("language_output_question"))
 
 	return
 }

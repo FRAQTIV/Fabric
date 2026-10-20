@@ -28,7 +28,7 @@ async function fetchText(url: string): Promise<string> {
 export async function listPatterns(query?: string): Promise<PatternMeta[]> {
   const all = await cached("index", async () => {
     const raw = await fetchText(
-      `${config.patternsBaseUrl}/web/static/data/pattern_descriptions.json`,
+      `${config.patternsBaseUrl}/scripts/pattern_descriptions/pattern_descriptions.json`,
     );
     const parsed = JSON.parse(raw) as { patterns?: PatternMeta[] };
     if (!Array.isArray(parsed.patterns)) {

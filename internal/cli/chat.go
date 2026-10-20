@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,33 +11,21 @@ import (
 
 	"github.com/danielmiessler/fabric/internal/core"
 	"github.com/danielmiessler/fabric/internal/domain"
+	"github.com/danielmiessler/fabric/internal/i18n"
 	debuglog "github.com/danielmiessler/fabric/internal/log"
 	"github.com/danielmiessler/fabric/internal/plugins/db/fsdb"
 	"github.com/danielmiessler/fabric/internal/tools/notifications"
 )
 
-// handleChatProcessing handles the main chat processing logic
 func handleChatProcessing(currentFlags *Flags, registry *core.PluginRegistry, messageTools string) (err error) {
 	if messageTools != "" {
 		currentFlags.AppendMessage(messageTools)
 	}
-	// Check for pattern-specific model via environment variable
-	if currentFlags.Pattern != "" && currentFlags.Model == "" {
-		envVar := "FABRIC_MODEL_" + strings.ToUpper(strings.ReplaceAll(currentFlags.Pattern, "-", "_"))
-		if modelSpec := os.Getenv(envVar); modelSpec != "" {
-			parts := strings.SplitN(modelSpec, "|", 2)
-			if len(parts) == 2 {
-				currentFlags.Vendor = parts[0]
-				currentFlags.Model = parts[1]
-			} else {
-				currentFlags.Model = modelSpec
-			}
-		}
-	}
+	applyPatternModel(currentFlags)
 
 	var chatter *core.Chatter
 	if chatter, err = registry.GetChatter(currentFlags.Model, currentFlags.ModelContextLength,
-		currentFlags.Vendor, currentFlags.Strategy, currentFlags.Stream, currentFlags.DryRun); err != nil {
+		currentFlags.Vendor, currentFlags.Stream, currentFlags.DryRun); err != nil {
 		return
 	}
 
@@ -53,77 +43,78 @@ func handleChatProcessing(currentFlags *Flags, registry *core.PluginRegistry, me
 		return
 	}
 
-	// Check if user is requesting audio output or using a TTS model
 	isAudioOutput := currentFlags.Output != "" && IsAudioFormat(currentFlags.Output)
 	isTTSModel := isTTSModel(currentFlags.Model)
 
 	if isTTSModel && !isAudioOutput {
-		err = fmt.Errorf("TTS model '%s' requires audio output. Please specify an audio output file with -o flag (e.g., -o output.wav)", currentFlags.Model)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("tts_model_requires_audio_output"), currentFlags.Model))
 		return
 	}
 
 	if isAudioOutput && !isTTSModel {
-		err = fmt.Errorf("audio output file '%s' specified but model '%s' is not a TTS model. Please use a TTS model like gemini-2.5-flash-preview-tts", currentFlags.Output, currentFlags.Model)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("audio_output_file_specified_but_not_tts_model"), currentFlags.Output, currentFlags.Model))
 		return
 	}
 
-	// For TTS models, check if output file already exists BEFORE processing
+	// Check for an existing output file before the TTS call. A failed check must not cost a model call.
 	if isTTSModel && isAudioOutput {
 		outputFile := currentFlags.Output
-		// Add .wav extension if not provided
+		// CreateAudioOutputFile also adds .wav, so check the same name.
 		if filepath.Ext(outputFile) == "" {
 			outputFile += ".wav"
 		}
 		if _, err = os.Stat(outputFile); err == nil {
-			err = fmt.Errorf("file %s already exists. Please choose a different filename or remove the existing file", outputFile)
+			err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("file_already_exists_choose_different"), outputFile))
 			return
 		}
 	}
 
-	// Set audio options in chat config
 	chatOptions.AudioOutput = isAudioOutput
 	if isAudioOutput {
-		chatOptions.AudioFormat = "wav" // Default to WAV format
+		chatOptions.AudioFormat = "wav"
 	}
 
-	if session, err = chatter.Send(chatReq, chatOptions); err != nil {
+	if session, err = chatter.Send(context.Background(), chatReq, chatOptions); err != nil {
 		return
 	}
 
 	result := session.GetLastMessage().Content
 
-	if !currentFlags.Stream || currentFlags.SuppressThink {
-		// For TTS models with audio output, show a user-friendly message instead of raw data
-		if isTTSModel && isAudioOutput && strings.HasPrefix(result, "FABRIC_AUDIO_DATA:") {
-			fmt.Printf("TTS audio generated successfully and saved to: %s\n", currentFlags.Output)
-		} else {
-			// print the result if it was not streamed already or suppress-think disabled streaming output
-			fmt.Println(result)
+	// Keep only the requested fenced code block. The session keeps the full response.
+	if (currentFlags.Extract || currentFlags.ExtractLast) && !(isTTSModel && isAudioOutput) {
+		if code, found := domain.ExtractFencedCodeBlock(result, currentFlags.ExtractLast); found {
+			result = code
 		}
 	}
 
-	// if the copy flag is set, copy the message to the clipboard
+	// Print the result unless streaming already printed it.
+	if !currentFlags.Stream || currentFlags.SuppressThink || chatOptions.BufferStream {
+		// Do not print raw audio data.
+		if isTTSModel && isAudioOutput && strings.HasPrefix(result, "FABRIC_AUDIO_DATA:") {
+			fmt.Printf(i18n.T("tts_audio_generated_successfully"), currentFlags.Output)
+		} else {
+			// Remove terminal control sequences from the displayed copy only.
+			fmt.Println(domain.SanitizeTerminalOutput(result))
+		}
+	}
+
 	if currentFlags.Copy {
 		if err = CopyToClipboard(result); err != nil {
 			return
 		}
 	}
 
-	// if the output flag is set, create an output file
 	if currentFlags.Output != "" {
 		if currentFlags.OutputSession {
 			sessionAsString := session.String()
 			err = CreateOutputFile(sessionAsString, currentFlags.Output)
 		} else {
-			// For TTS models, we need to handle audio output differently
 			if isTTSModel && isAudioOutput {
-				// Check if result contains actual audio data
 				if strings.HasPrefix(result, "FABRIC_AUDIO_DATA:") {
-					// Extract the binary audio data
 					audioData := result[len("FABRIC_AUDIO_DATA:"):]
 					err = CreateAudioOutputFile([]byte(audioData), currentFlags.Output)
 				} else {
-					// Fallback for any error messages or unexpected responses
+					// A TTS response without the prefix is an error message. Write it as text.
 					err = CreateOutputFile(result, currentFlags.Output)
 				}
 			} else {
@@ -132,10 +123,9 @@ func handleChatProcessing(currentFlags *Flags, registry *core.PluginRegistry, me
 		}
 	}
 
-	// Send notification if requested
 	if chatOptions.Notification {
 		if err = sendNotification(chatOptions, chatReq.PatternName, result); err != nil {
-			// Log notification error but don't fail the main command
+			// A notification failure does not fail the command.
 			debuglog.Log("Failed to send notification: %v\n", err)
 		}
 	}
@@ -143,54 +133,78 @@ func handleChatProcessing(currentFlags *Flags, registry *core.PluginRegistry, me
 	return
 }
 
-// sendNotification sends a desktop notification about command completion.
-//
-// When truncating the result for notification display, this function counts Unicode code points,
-// not grapheme clusters. As a result, complex emoji or accented characters with multiple combining
-// characters may be truncated improperly. This is a limitation of the current implementation.
+// applyPatternModel applies FABRIC_MODEL_<PATTERN> when no model is set.
+// The value is a "vendor|model" pair or a model name for one pattern.
+func applyPatternModel(currentFlags *Flags) {
+	if currentFlags.Pattern == "" || currentFlags.Model != "" {
+		return
+	}
+	envVar := "FABRIC_MODEL_" + strings.ToUpper(strings.ReplaceAll(currentFlags.Pattern, "-", "_"))
+	if modelSpec := os.Getenv(envVar); modelSpec != "" {
+		parts := strings.SplitN(modelSpec, "|", 2)
+		if len(parts) == 2 {
+			currentFlags.Vendor = parts[0]
+			currentFlags.Model = parts[1]
+		} else {
+			currentFlags.Model = modelSpec
+		}
+	}
+}
+
+// sendNotification runs the custom notification command, or the built-in notifier when none is set.
 func sendNotification(options *domain.ChatOptions, patternName, result string) error {
-	title := "Fabric Command Complete"
+	title := i18n.T("fabric_command_complete")
 	if patternName != "" {
-		title = fmt.Sprintf("Fabric: %s Complete", patternName)
+		title = fmt.Sprintf(i18n.T("fabric_command_complete_with_pattern"), patternName)
 	}
 
-	// Limit message length for notification display (counts Unicode code points)
-	message := "Command completed successfully"
+	// Truncate at 100 code points, not grapheme clusters. A multi-code-point emoji can be cut in the middle.
+	message := i18n.T("command_completed_successfully")
 	if result != "" {
 		maxLength := 100
 		runes := []rune(result)
 		if len(runes) > maxLength {
-			message = fmt.Sprintf("Output: %s...", string(runes[:maxLength]))
+			message = fmt.Sprintf(i18n.T("output_truncated"), string(runes[:maxLength]))
 		} else {
-			message = fmt.Sprintf("Output: %s", result)
+			message = fmt.Sprintf(i18n.T("output_full"), result)
 		}
-		// Clean up newlines for notification display
+		// Notifications show one line.
 		message = strings.ReplaceAll(message, "\n", " ")
 	}
 
-	// Use custom notification command if provided
 	if options.NotificationCommand != "" {
-		// SECURITY: Pass title and message as proper shell positional arguments $1 and $2
-		// This matches the documented interface where custom commands receive title and message as shell variables
+		// SECURITY: pass title and message as the positional arguments $1 and $2, never inside the command string.
+		// docs/Desktop-Notifications.md documents this interface.
+		// A command can put $2 into a quoted string of a different language, for example osascript -e "...\"$2\"...".
+		// Remove quotes and backslashes, so that model output cannot end that string.
+		title = sanitizeNotificationText(title)
+		message = sanitizeNotificationText(message)
 		cmd := exec.Command("sh", "-c", options.NotificationCommand+" \"$1\" \"$2\"", "--", title, message)
 
-		// For debugging: capture and display output from custom commands
+		// Show the command output on the terminal.
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
 		return cmd.Run()
 	}
 
-	// Use built-in notification system
 	notificationManager := notifications.NewNotificationManager()
 	if !notificationManager.IsAvailable() {
-		return fmt.Errorf("no notification system available")
+		return errors.New(i18n.T("no_notification_system_available"))
 	}
 
 	return notificationManager.Send(title, message)
 }
 
-// isTTSModel checks if the model is a text-to-speech model
+// sanitizeNotificationText removes double quotes, single quotes and
+// backslashes. Thus the text cannot close a quoted string in a custom
+// notification command. The text is a short preview, so the notification
+// keeps its meaning.
+func sanitizeNotificationText(s string) string {
+	return strings.NewReplacer("\"", "", "'", "", "\\", "").Replace(s)
+}
+
+// isTTSModel matches model names that contain "tts" or "text-to-speech".
 func isTTSModel(modelName string) bool {
 	lowerModel := strings.ToLower(modelName)
 	return strings.Contains(lowerModel, "tts") ||

@@ -6,6 +6,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/danielmiessler/fabric/internal/plugins"
 	"github.com/danielmiessler/fabric/internal/plugins/ai"
 )
@@ -15,7 +16,7 @@ func NeeDefaults(getVendorsModels func() (*ai.VendorsModels, error)) (ret *Defau
 	ret = &Defaults{
 		PluginBase: &plugins.PluginBase{
 			Name:             vendorName,
-			SetupDescription: "Default AI Vendor and Model [required]",
+			SetupDescription: i18n.T("defaults_setup_description") + " " + i18n.T("required_marker"),
 			EnvNamePrefix:    plugins.BuildEnvVariablePrefix(vendorName),
 		},
 		GetVendorsModels: getVendorsModels,
@@ -23,11 +24,11 @@ func NeeDefaults(getVendorsModels func() (*ai.VendorsModels, error)) (ret *Defau
 
 	ret.Vendor = ret.AddSetting("Vendor", true)
 
-	ret.Model = ret.AddSetupQuestionCustom("Model", true,
-		"Enter the index the name of your default model")
+	ret.Model = ret.AddSetupQuestionWithEnvName("Model", true,
+		i18n.T("defaults_model_question"))
 
-	ret.ModelContextLength = ret.AddSetupQuestionCustom("Model Context Length", false,
-		"Enter model context length")
+	ret.ModelContextLength = ret.AddSetupQuestionWithEnvName("Model Context Length", false,
+		i18n.T("defaults_model_context_length_question"))
 
 	return
 }
@@ -62,7 +63,6 @@ func (o *Defaults) Setup() (err error) {
 		o.Vendor.Value = vendorsModels.FindGroupsByItemFirst(o.Model.Value)
 	}
 
-	//verify
 	vendorNames := vendorsModels.FindGroupsByItem(o.Model.Value)
 	if len(vendorNames) == 0 {
 		err = errors.Errorf("You need to chose an available default model.")

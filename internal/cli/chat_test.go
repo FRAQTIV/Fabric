@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/danielmiessler/fabric/internal/domain"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/dryrun"
 )
 
 func TestSendNotification_SecurityEscaping(t *testing.T) {
@@ -73,9 +74,7 @@ func TestSendNotification_SecurityEscaping(t *testing.T) {
 				Notification:        true,
 			}
 
-			// This test mainly verifies that the function doesn't panic
-			// and properly escapes dangerous content. The actual command
-			// execution is tested separately in integration tests.
+			// The command runs, but the test does not read its output. It only checks for no error.
 			err := sendNotification(options, "test_pattern", tt.message)
 
 			if tt.expectError && err == nil {
@@ -119,11 +118,8 @@ func TestSendNotification_TitleGeneration(t *testing.T) {
 				Notification:        true,
 			}
 
-			// We're testing the title generation logic
-			// The actual notification command would echo the title
 			err := sendNotification(options, tt.patternName, "test message")
 
-			// The function should not error for valid inputs
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 			}
@@ -132,7 +128,7 @@ func TestSendNotification_TitleGeneration(t *testing.T) {
 }
 
 func TestSendNotification_MessageTruncation(t *testing.T) {
-	longMessage := strings.Repeat("A", 150) // 150 characters
+	longMessage := strings.Repeat("A", 150)
 	shortMessage := "Short message"
 
 	tests := []struct {
@@ -162,5 +158,26 @@ func TestSendNotification_MessageTruncation(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestSanitizeNotificationText(t *testing.T) {
+	in := `x" & (do shell script "echo hi") & "` + `\'');print('x`
+	want := `x & (do shell script echo hi) & );print(x`
+	if got := sanitizeNotificationText(in); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestHandleChatProcessingSanitizesOutput checks that the printed reply has no
+// terminal control sequence.
+func TestHandleChatProcessingSanitizesOutput(t *testing.T) {
+	const reply = "a\x1b]8;;http://evil.example\x07b"
+	registry := newStepRegistry(t, &stepVendor{Client: dryrun.NewClient(), reply: reply}, &Workflow{})
+	flags := &Flags{Message: "in", Language: "en"}
+
+	printed := captureStdout(t, func() { must(t, handleChatProcessing(flags, registry, "")) })
+	if got := string(printed); got != "ab\n" {
+		t.Errorf("printed %q, want %q", got, "ab\n")
 	}
 }

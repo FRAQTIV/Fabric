@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"google.golang.org/genai"
-
 	"github.com/danielmiessler/fabric/internal/chat"
 	"github.com/danielmiessler/fabric/internal/domain"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/geminicommon"
+	"google.golang.org/genai"
 )
 
 // Test buildModelNameFull method
@@ -31,9 +31,8 @@ func TestBuildModelNameFull(t *testing.T) {
 	}
 }
 
-// Test extractTextFromResponse method
+// Test ExtractTextWithCitations from geminicommon
 func TestExtractTextFromResponse(t *testing.T) {
-	client := &Client{}
 	response := &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{
 			{
@@ -48,7 +47,7 @@ func TestExtractTextFromResponse(t *testing.T) {
 	}
 	expected := "Hello, world!"
 
-	result := client.extractTextFromResponse(response)
+	result := geminicommon.ExtractTextWithCitations(response)
 
 	if result != expected {
 		t.Errorf("Expected %v, got %v", expected, result)
@@ -56,14 +55,12 @@ func TestExtractTextFromResponse(t *testing.T) {
 }
 
 func TestExtractTextFromResponse_Nil(t *testing.T) {
-	client := &Client{}
-	if got := client.extractTextFromResponse(nil); got != "" {
+	if got := geminicommon.ExtractTextWithCitations(nil); got != "" {
 		t.Fatalf("expected empty string, got %q", got)
 	}
 }
 
 func TestExtractTextFromResponse_EmptyGroundingChunks(t *testing.T) {
-	client := &Client{}
 	response := &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{
 			{
@@ -72,7 +69,7 @@ func TestExtractTextFromResponse_EmptyGroundingChunks(t *testing.T) {
 			},
 		},
 	}
-	if got := client.extractTextFromResponse(response); got != "Hello" {
+	if got := geminicommon.ExtractTextWithCitations(response); got != "Hello" {
 		t.Fatalf("expected 'Hello', got %q", got)
 	}
 }
@@ -162,7 +159,6 @@ func TestBuildGenerateContentConfig_ThinkingTokens(t *testing.T) {
 }
 
 func TestCitationFormatting(t *testing.T) {
-	client := &Client{}
 	response := &genai.GenerateContentResponse{
 		Candidates: []*genai.Candidate{
 			{
@@ -178,7 +174,7 @@ func TestCitationFormatting(t *testing.T) {
 		},
 	}
 
-	result := client.extractTextFromResponse(response)
+	result := geminicommon.ExtractTextWithCitations(response)
 	if !strings.Contains(result, "## Sources") {
 		t.Fatalf("expected sources section in result: %s", result)
 	}
@@ -189,14 +185,13 @@ func TestCitationFormatting(t *testing.T) {
 
 // Test convertMessages handles role mapping correctly
 func TestConvertMessagesRoles(t *testing.T) {
-	client := &Client{}
 	msgs := []*chat.ChatCompletionMessage{
 		{Role: chat.ChatMessageRoleUser, Content: "user"},
 		{Role: chat.ChatMessageRoleAssistant, Content: "assistant"},
 		{Role: chat.ChatMessageRoleSystem, Content: "system"},
 	}
 
-	contents := client.convertMessages(msgs)
+	contents := geminicommon.ConvertMessages(msgs)
 
 	expected := []string{"user", "model", "user"}
 
@@ -239,7 +234,6 @@ func TestIsTTSModel(t *testing.T) {
 func TestGenerateWAVFile(t *testing.T) {
 	client := &Client{}
 
-	// Test with minimal PCM data
 	pcmData := []byte{0x00, 0x01, 0x02, 0x03}
 
 	result, err := client.generateWAVFile(pcmData)
@@ -247,12 +241,10 @@ func TestGenerateWAVFile(t *testing.T) {
 		t.Errorf("generateWAVFile failed: %v", err)
 	}
 
-	// Check that we got some data back
 	if len(result) == 0 {
 		t.Error("generateWAVFile returned empty data")
 	}
 
-	// Check that it starts with RIFF header
 	if len(result) >= 4 && string(result[0:4]) != "RIFF" {
 		t.Error("Generated WAV data doesn't start with RIFF header")
 	}

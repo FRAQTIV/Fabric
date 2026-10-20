@@ -1,0 +1,546 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "REST API for Fabric AI augmentation framework. Provides endpoints for chat completions, pattern management, contexts, sessions, and more.",
+        "title": "Fabric REST API",
+        "contact": {
+            "name": "Fabric Support",
+            "url": "https://github.com/danielmiessler/fabric"
+        },
+        "license": {
+            "name": "MIT",
+            "url": "https://opensource.org/licenses/MIT"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Stream AI responses using Server-Sent Events (SSE)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Stream chat completions",
+                "parameters": [
+                    {
+                        "description": "Chat request with prompts and options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restapi.ChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Streaming response",
+                        "schema": {
+                            "$ref": "#/definitions/restapi.StreamResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/models/names": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Get a list of all available AI models grouped by vendor",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "models"
+                ],
+                "summary": "List all available models",
+                "responses": {
+                    "200": {
+                        "description": "Returns models (array) and vendors (map)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/patterns/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retrieve a pattern by name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "patterns"
+                ],
+                "summary": "Get a pattern",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Pattern name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/fsdb.Pattern"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/patterns/{name}/apply": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Apply a pattern with variable substitution",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "patterns"
+                ],
+                "summary": "Apply pattern with variables",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Pattern name",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pattern application request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restapi.PatternApplyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/fsdb.Pattern"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/youtube/transcript": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retrieves the transcript of a YouTube video along with video metadata (title and description)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "youtube"
+                ],
+                "summary": "Get YouTube video transcript",
+                "parameters": [
+                    {
+                        "description": "YouTube transcript request with URL, language, and timestamp options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/restapi.YouTubeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful response with transcript and metadata",
+                        "schema": {
+                            "$ref": "#/definitions/restapi.YouTubeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request - invalid URL or playlist URL provided",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error - failed to retrieve transcript or metadata",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "domain.ThinkingLevel": {
+            "type": "string",
+            "enum": [
+                "off",
+                "low",
+                "medium",
+                "high"
+            ],
+            "x-enum-varnames": [
+                "ThinkingOff",
+                "ThinkingLow",
+                "ThinkingMedium",
+                "ThinkingHigh"
+            ]
+        },
+        "domain.UsageMetadata": {
+            "type": "object",
+            "properties": {
+                "input_tokens": {
+                    "type": "integer"
+                },
+                "output_tokens": {
+                    "type": "integer"
+                },
+                "total_tokens": {
+                    "type": "integer"
+                }
+            }
+        },
+        "fsdb.Pattern": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "pattern": {
+                    "type": "string"
+                }
+            }
+        },
+        "restapi.ChatRequest": {
+            "type": "object",
+            "properties": {
+                "audioFormat": {
+                    "type": "string"
+                },
+                "audioOutput": {
+                    "type": "boolean"
+                },
+                "frequencyPenalty": {
+                    "type": "number",
+                    "format": "float64"
+                },
+                "imageBackground": {
+                    "type": "string"
+                },
+                "imageCompression": {
+                    "type": "integer"
+                },
+                "imageFile": {
+                    "type": "string"
+                },
+                "imageQuality": {
+                    "type": "string"
+                },
+                "imageSize": {
+                    "type": "string"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "maxTokens": {
+                    "type": "integer"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "modelContextLength": {
+                    "type": "integer"
+                },
+                "notification": {
+                    "type": "boolean"
+                },
+                "notificationCommand": {
+                    "type": "string"
+                },
+                "presencePenalty": {
+                    "type": "number",
+                    "format": "float64"
+                },
+                "prompts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/restapi.PromptRequest"
+                    }
+                },
+                "quiet": {
+                    "type": "boolean"
+                },
+                "raw": {
+                    "type": "boolean"
+                },
+                "search": {
+                    "type": "boolean"
+                },
+                "searchLocation": {
+                    "type": "string"
+                },
+                "seed": {
+                    "type": "integer"
+                },
+                "showMetadata": {
+                    "type": "boolean"
+                },
+                "suppressThink": {
+                    "type": "boolean"
+                },
+                "temperature": {
+                    "type": "number",
+                    "format": "float64"
+                },
+                "thinkEndTag": {
+                    "type": "string"
+                },
+                "thinkStartTag": {
+                    "type": "string"
+                },
+                "thinking": {
+                    "$ref": "#/definitions/domain.ThinkingLevel"
+                },
+                "topP": {
+                    "type": "number",
+                    "format": "float64"
+                },
+                "voice": {
+                    "type": "string"
+                }
+            }
+        },
+        "restapi.PatternApplyRequest": {
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "restapi.PromptRequest": {
+            "type": "object",
+            "properties": {
+                "contextName": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "patternName": {
+                    "type": "string"
+                },
+                "sessionName": {
+                    "description": "Session name for multi-turn conversations",
+                    "type": "string"
+                },
+                "strategyName": {
+                    "description": "Optional strategy name",
+                    "type": "string"
+                },
+                "userInput": {
+                    "type": "string"
+                },
+                "variables": {
+                    "description": "Pattern variables",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "vendor": {
+                    "type": "string"
+                }
+            }
+        },
+        "restapi.StreamResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "format": {
+                    "description": "\"markdown\", \"mermaid\", \"plain\"",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "\"content\", \"usage\", \"error\", \"complete\"",
+                    "type": "string"
+                },
+                "usage": {
+                    "$ref": "#/definitions/domain.UsageMetadata"
+                }
+            }
+        },
+        "restapi.YouTubeRequest": {
+            "type": "object",
+            "required": [
+                "url"
+            ],
+            "properties": {
+                "language": {
+                    "description": "Language code for transcript (default: \"en\")",
+                    "type": "string",
+                    "example": "en"
+                },
+                "timestamps": {
+                    "description": "Include timestamps in the transcript (default: false)",
+                    "type": "boolean",
+                    "example": false
+                },
+                "url": {
+                    "description": "YouTube video URL (required)",
+                    "type": "string",
+                    "example": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                }
+            }
+        },
+        "restapi.YouTubeResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "description": "Video description from YouTube metadata",
+                    "type": "string",
+                    "example": "This is the video description from YouTube..."
+                },
+                "title": {
+                    "description": "Video title from YouTube metadata",
+                    "type": "string",
+                    "example": "Example Video Title"
+                },
+                "transcript": {
+                    "description": "The video transcript text",
+                    "type": "string",
+                    "example": "This is the video transcript..."
+                },
+                "videoId": {
+                    "description": "YouTube video ID",
+                    "type": "string",
+                    "example": "dQw4w9WgXcQ"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "name": "X-API-Key",
+            "in": "header"
+        }
+    }
+}

@@ -10,7 +10,7 @@
     </p>
     
     <nav class="flex items-center gap-4 ">
-      <BuyMeCoffee url="https://www.buymeacoffee.com/" /> <!-- And here -->
+      <BuyMeCoffee url="https://buymeacoffee.com/kayvansylvan" /> <!-- And here -->
     </nav>
   </div>
 </footer>
