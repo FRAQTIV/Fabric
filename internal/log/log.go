@@ -19,6 +19,8 @@ const (
 	Detailed
 	// Trace is the most verbose level.
 	Trace
+	// Wire logs full request/response exchanges with model backends.
+	Wire
 )
 
 var (
@@ -43,15 +45,17 @@ func LevelFromInt(i int) Level {
 		return Basic
 	case i == 2:
 		return Detailed
-	case i >= 3:
+	case i == 3:
 		return Trace
+	case i >= 4:
+		return Wire
 	default:
 		return Off
 	}
 }
 
 // Debug writes a debug message if the global level permits.
-func Debug(l Level, format string, a ...interface{}) {
+func Debug(l Level, format string, a ...any) {
 	mu.RLock()
 	current := level
 	w := output
@@ -63,7 +67,7 @@ func Debug(l Level, format string, a ...interface{}) {
 
 // Log writes a message unconditionally to stderr.
 // This is for important messages that should always be shown regardless of debug level.
-func Log(format string, a ...interface{}) {
+func Log(format string, a ...any) {
 	mu.RLock()
 	w := output
 	mu.RUnlock()
@@ -75,4 +79,11 @@ func SetOutput(w io.Writer) {
 	mu.Lock()
 	output = w
 	mu.Unlock()
+}
+
+// GetLevel returns the current global debug level.
+func GetLevel() Level {
+	mu.RLock()
+	defer mu.RUnlock()
+	return level
 }

@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
 )
 
 // FileChangesMarker identifies the start of a file changes section in output
@@ -27,20 +31,17 @@ type FileChange struct {
 func ParseFileChanges(output string) (changeSummary string, changes []FileChange, err error) {
 	fileChangesStart := strings.Index(output, FileChangesMarker)
 	if fileChangesStart == -1 {
-		return output, nil, nil // No file changes section found
+		return output, nil, nil
 	}
-	changeSummary = output[:fileChangesStart] // Everything before the marker
+	changeSummary = output[:fileChangesStart]
 
-	// Extract the JSON part
 	jsonStart := fileChangesStart + len(FileChangesMarker)
-	// Find the first [ after the file changes marker
 	jsonArrayStart := strings.Index(output[jsonStart:], "[")
 	if jsonArrayStart == -1 {
-		return output, nil, fmt.Errorf("invalid %s format: no JSON array found", FileChangesMarker)
+		return output, nil, fmt.Errorf(i18n.T("file_manager_invalid_format_no_json_array"), FileChangesMarker)
 	}
 	jsonStart += jsonArrayStart
 
-	// Find the matching closing bracket for the array with proper bracket counting
 	bracketCount := 0
 	jsonEnd := jsonStart
 	for i := jsonStart; i < len(output); i++ {
@@ -56,55 +57,48 @@ func ParseFileChanges(output string) (changeSummary string, changes []FileChange
 	}
 
 	if bracketCount != 0 {
-		return output, nil, fmt.Errorf("invalid %s format: unbalanced brackets", FileChangesMarker)
+		return output, nil, fmt.Errorf(i18n.T("file_manager_invalid_format_unbalanced_brackets"), FileChangesMarker)
 	}
 
-	// Extract the JSON string and fix escape sequences
 	jsonStr := output[jsonStart:jsonEnd]
 
-	// Fix specific invalid escape sequences
-	// First try with the common \C issue
 	jsonStr = strings.Replace(jsonStr, `\C`, `\\C`, -1)
 
-	// Parse the JSON
 	var fileChanges []FileChange
 	err = json.Unmarshal([]byte(jsonStr), &fileChanges)
 	if err != nil {
-		// If still failing, try a more comprehensive fix
 		jsonStr = fixInvalidEscapes(jsonStr)
 		err = json.Unmarshal([]byte(jsonStr), &fileChanges)
 		if err != nil {
-			return changeSummary, nil, fmt.Errorf("failed to parse %s JSON: %w", FileChangesMarker, err)
+			return changeSummary, nil, fmt.Errorf(i18n.T("file_manager_failed_parse_json"), FileChangesMarker, err)
 		}
 	}
 
-	// Validate file changes
 	for i, change := range fileChanges {
-		// Validate operation
 		if change.Operation != "create" && change.Operation != "update" {
-			return changeSummary, nil, fmt.Errorf("invalid operation for file change %d: %s", i, change.Operation)
+			return changeSummary, nil, fmt.Errorf(i18n.T("file_manager_invalid_operation"), i, change.Operation)
 		}
 
-		// Validate path
 		if change.Path == "" {
-			return changeSummary, nil, fmt.Errorf("empty path for file change %d", i)
+			return changeSummary, nil, fmt.Errorf(i18n.T("file_manager_empty_path"), i)
 		}
 
-		// Check for suspicious paths (directory traversal)
-		if strings.Contains(change.Path, "..") {
-			return changeSummary, nil, fmt.Errorf("suspicious path for file change %d: %s", i, change.Path)
+		// A control character in a path makes a bad file name, and it can
+		// change the terminal when Fabric shows the path.
+		if !filepath.IsLocal(change.Path) || strings.ContainsFunc(change.Path, unicode.IsControl) {
+			return changeSummary, nil, fmt.Errorf(i18n.T("file_manager_suspicious_path"), i, change.Path)
 		}
 
-		// Check file size
 		if len(change.Content) > MaxFileSize {
-			return changeSummary, nil, fmt.Errorf("file content too large for file change %d: %d bytes", i, len(change.Content))
+			return changeSummary, nil, fmt.Errorf(i18n.T("file_manager_file_content_too_large"), i, len(change.Content))
 		}
 	}
 
 	return changeSummary, fileChanges, nil
 }
 
-// fixInvalidEscapes replaces invalid escape sequences in JSON strings
+// fixInvalidEscapes escapes raw control characters inside JSON strings and
+// doubles the backslash of an unknown escape sequence.
 func fixInvalidEscapes(jsonStr string) string {
 	validEscapes := []byte{'b', 'f', 'n', 'r', 't', '\\', '/', '"', 'u'}
 
@@ -115,14 +109,12 @@ func fixInvalidEscapes(jsonStr string) string {
 	for i < len(jsonStr) {
 		ch := jsonStr[i]
 
-		// Track whether we're inside a JSON string
 		if ch == '"' && (i == 0 || jsonStr[i-1] != '\\') {
 			inQuotes = !inQuotes
 		}
 
-		// Handle actual control characters inside string literals
 		if inQuotes {
-			// Convert literal control characters to proper JSON escape sequences
+			// JSON does not accept a raw control character in a string.
 			if ch == '\n' {
 				result.WriteString("\\n")
 				i++
@@ -136,27 +128,18 @@ func fixInvalidEscapes(jsonStr string) string {
 				i++
 				continue
 			} else if ch < 32 {
-				// Handle other control characters
 				fmt.Fprintf(&result, "\\u%04x", ch)
 				i++
 				continue
 			}
 		}
 
-		// Check for escape sequences only inside strings
 		if inQuotes && ch == '\\' && i+1 < len(jsonStr) {
 			nextChar := jsonStr[i+1]
-			isValid := false
-
-			for _, validEscape := range validEscapes {
-				if nextChar == validEscape {
-					isValid = true
-					break
-				}
-			}
+			isValid := slices.Contains(validEscapes, nextChar)
 
 			if !isValid {
-				// Invalid escape sequence - add an extra backslash
+				// Double the backslash so the sequence decodes as a literal backslash.
 				result.WriteByte('\\')
 				result.WriteByte('\\')
 				i++
@@ -171,25 +154,68 @@ func fixInvalidEscapes(jsonStr string) string {
 	return result.String()
 }
 
-// ApplyFileChanges applies the parsed file changes to the file system
+// ApplyFileChanges applies the parsed file changes to the file system.
+//
+// The change list comes from model output. Thus all writes go through os.Root,
+// which refuses a path that goes out of projectRoot through a symlink.
+// filepath.IsLocal only examines the path text and cannot find this.
+// ApplyFileChanges also refuses a path through a symlink and a path into .git,
+// so that a change cannot write a git hook.
 func ApplyFileChanges(projectRoot string, changes []FileChange) error {
+	root, err := os.OpenRoot(projectRoot)
+	if err != nil {
+		return fmt.Errorf(i18n.T("file_manager_failed_open_root"), projectRoot, err)
+	}
+	defer root.Close()
+
+	// Examine all paths before the first write, so that a bad path does not
+	// leave a part of the change set on disk.
 	for i, change := range changes {
-		// Get the absolute path
-		absPath := filepath.Join(projectRoot, change.Path)
+		if !filepath.IsLocal(change.Path) || unsafePath(root, filepath.Clean(change.Path)) {
+			return fmt.Errorf(i18n.T("file_manager_suspicious_path"), i, change.Path)
+		}
+	}
 
-		// Create directories if necessary
-		dir := filepath.Dir(absPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s for file change %d: %w", dir, i, err)
+	for i, change := range changes {
+		clean := filepath.Clean(change.Path)
+		if dir := filepath.Dir(clean); dir != "." {
+			if err := root.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf(i18n.T("file_manager_failed_create_directory"), dir, i, err)
+			}
 		}
 
-		// Write the file
-		if err := os.WriteFile(absPath, []byte(change.Content), 0644); err != nil {
-			return fmt.Errorf("failed to write file %s for file change %d: %w", absPath, i, err)
+		if err := root.WriteFile(clean, []byte(change.Content), 0644); err != nil {
+			return fmt.Errorf(i18n.T("file_manager_failed_write_file"), clean, i, err)
 		}
 
-		fmt.Printf("Applied %s operation to %s\n", change.Operation, change.Path)
+		fmt.Printf(i18n.T("file_manager_applied_operation")+"\n", change.Operation, change.Path)
 	}
 
 	return nil
+}
+
+// unsafePath reports whether a component of the clean, relative path is .git
+// (any case) or a symlink that is in the root.
+//
+// A name comparison is not sufficient. On Windows, the NTFS 8.3 short name
+// GIT~1 also opens the .git directory. Thus unsafePath also refuses a component
+// that is the same file as the .git entry in its parent directory.
+func unsafePath(root *os.Root, clean string) bool {
+	parts := strings.Split(clean, string(filepath.Separator))
+	for i, part := range parts {
+		if strings.EqualFold(part, ".git") {
+			return true
+		}
+		info, err := root.Lstat(filepath.Join(parts[:i+1]...))
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+		if git, err := root.Lstat(filepath.Join(append(parts[:i:i], ".git")...)); err == nil && os.SameFile(info, git) {
+			return true
+		}
+	}
+	return false
 }

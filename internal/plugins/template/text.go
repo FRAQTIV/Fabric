@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/danielmiessler/fabric/internal/i18n"
 )
 
 // TextPlugin provides string manipulation operations
 type TextPlugin struct{}
 
-// toTitle capitalizes a letter if it follows a non-letter, unless next char is space
+// toTitle lowercases s, then uppercases each rune that starts the string or follows a non-letter.
+// Such a rune stays lowercase when a space follows it.
 func toTitle(s string) string {
-	// First lowercase everything
 	lower := strings.ToLower(s)
 	runes := []rune(lower)
 
-	for i := 0; i < len(runes); i++ {
-		// Capitalize if previous char is non-letter AND
-		// (we're at the end OR next char is not space)
+	for i := range runes {
 		if i == 0 || !unicode.IsLetter(runes[i-1]) {
 			if i == len(runes)-1 || !unicode.IsSpace(runes[i+1]) {
 				runes[i] = unicode.ToUpper(runes[i])
@@ -34,7 +34,7 @@ func (p *TextPlugin) Apply(operation string, value string) (string, error) {
 	debugf("TextPlugin: operation=%s value=%q", operation, value)
 
 	if value == "" {
-		return "", fmt.Errorf("text: empty input for operation %q", operation)
+		return "", fmt.Errorf(i18n.T("template_text_empty_input"), operation)
 	}
 
 	switch operation {
@@ -59,6 +59,6 @@ func (p *TextPlugin) Apply(operation string, value string) (string, error) {
 		return result, nil
 
 	default:
-		return "", fmt.Errorf("text: unknown text operation %q (supported: upper, lower, title, trim)", operation)
+		return "", fmt.Errorf(i18n.T("template_text_unknown_operation"), operation)
 	}
 }

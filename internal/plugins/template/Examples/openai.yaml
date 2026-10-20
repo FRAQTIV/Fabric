@@ -1,0 +1,14 @@
+name: openai
+executable: "/path/to/your/openai-chat.sh"
+type: executable
+timeout: "30s"
+description: "Call OpenAI Chat Completions API"
+version: "1.0.0"
+
+operations:
+  chat:
+    cmd_template: "{{executable}} {{value}}"
+
+config:
+  output:
+    method: stdout

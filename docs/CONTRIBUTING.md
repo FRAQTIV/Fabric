@@ -8,12 +8,13 @@ Thanks for contributing to Fabric! Here's what you need to know to get started q
 
 - Go 1.24+ installed
 - Git configured with your details
+- GitHub CLI (`gh`)
 
 ### Getting Started
 
 ```bash
-# Clone and setup
-git clone https://github.com/danielmiessler/fabric.git
+# Clone your fork (upstream is set automatically)
+gh repo clone YOUR_GITHUB_USER/fabric
 cd fabric
 go build -o fabric ./cmd/fabric
 ./fabric --setup
@@ -50,14 +51,35 @@ docs: update installation instructions
 
 ## Pull Request Process
 
+### Pull Request Guidelines
+
+**Keep pull requests focused and minimal.**
+
+PRs that touch a large number of files (50+) without clear functional justification will likely be rejected without detailed review.
+
+#### Why we enforce this
+
+- **Reviewability**: Large PRs are effectively un-reviewable. Studies show reviewer effectiveness drops significantly after ~200-400 lines of code. A 93-file "cleanup" PR cannot receive meaningful review.
+- **Git history**: Sweeping changes pollute `git blame`, making it harder to trace when and why functional changes were made.
+- **Merge conflicts**: Large PRs increase the likelihood of conflicts with other contributors' work.
+- **Risk**: More changed lines means more opportunities for subtle bugs, even in "safe" refactors.
+
+#### What to do instead
+
+If you have a large change in mind, break it into logical, independently-mergeable slices. For example:
+
+- ✅ "Replace `interface{}` with `any` across codebase" (single mechanical change, easy to verify)
+- ✅ "Migrate to `strings.CutPrefix` in `internal/cli`" (scoped to one package)
+- ❌ "Modernize codebase with multiple idiom updates" (too broad, impossible to review)
+
+For sweeping refactors or style changes, **open an issue first** to discuss the approach with maintainers before investing time in the work.
+
 ### Changelog Generation (REQUIRED)
 
-Before submitting your PR, generate a changelog entry:
+After opening your PR, generate a changelog entry:
 
 ```bash
-cd cmd/generate_changelog
-go build -o generate_changelog .
-./generate_changelog --incoming-pr YOUR_PR_NUMBER
+go run ./cmd/generate_changelog --ai-summarize --incoming-pr YOUR_PR_NUMBER
 ```
 
 **Requirements:**
@@ -142,6 +164,79 @@ Example output here
 - Add docs to `docs/` for complex features
 - Include usage examples
 - Keep documentation current
+
+### REST API Documentation
+
+When adding or modifying REST API endpoints, you must update the Swagger documentation:
+
+**1. Add Swagger annotations to your handler:**
+
+```go
+// HandlerName godoc
+// @Summary Short description of what this endpoint does
+// @Description Detailed description of the endpoint's functionality
+// @Tags category-name
+// @Accept json
+// @Produce json
+// @Param name path string true "Parameter description"
+// @Param body body RequestType true "Request body description"
+// @Success 200 {object} ResponseType "Success description"
+// @Failure 400 {object} map[string]string "Bad request"
+// @Failure 500 {object} map[string]string "Server error"
+// @Security ApiKeyAuth
+// @Router /endpoint/path [get]
+func (h *Handler) HandlerName(c *gin.Context) {
+    // Implementation
+}
+```
+
+**2. Regenerate Swagger documentation:**
+
+```bash
+# Install swag CLI if you haven't already
+go install github.com/swaggo/swag/cmd/swag@latest
+
+# Generate updated documentation
+swag init -g internal/server/serve.go -o docs
+```
+
+**3. Commit the generated files:**
+
+The following files will be updated and should be committed:
+
+- `docs/swagger.json`
+- `docs/swagger.yaml`
+- `docs/docs.go`
+
+**4. Test your changes:**
+
+Start the server and verify your endpoint appears in Swagger UI:
+
+```bash
+go run ./cmd/fabric --serve
+# Open http://localhost:8080/swagger/index.html
+```
+
+**Examples to follow:**
+
+- Chat endpoint: `internal/server/chat.go:58-68`
+- Patterns endpoint: `internal/server/patterns.go:36-45`
+- Models endpoint: `internal/server/models.go:20-28`
+
+**Common annotation tags:**
+
+- `@Summary` - One-line description (required)
+- `@Description` - Detailed explanation
+- `@Tags` - Logical grouping (e.g., "patterns", "chat", "models")
+- `@Accept` - Input content type (e.g., "json")
+- `@Produce` - Output content type (e.g., "json", "text/event-stream")
+- `@Param` - Request parameters (path, query, body)
+- `@Success` - Successful response (include status code and type)
+- `@Failure` - Error responses
+- `@Security` - Authentication requirement (use "ApiKeyAuth" for API key)
+- `@Router` - Endpoint path and HTTP method
+
+For complete Swagger annotation syntax, see the [swaggo documentation](https://github.com/swaggo/swag#declarative-comments-format)
 
 ## Getting Help
 

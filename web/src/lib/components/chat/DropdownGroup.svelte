@@ -2,8 +2,8 @@
   import Patterns from "./Patterns.svelte";
   import Models from "./Models.svelte";
   import ModelConfig from "./ModelConfig.svelte";
+  import SessionSelector from "./SessionSelector.svelte";
   import { Select } from "$lib/components/ui/select";
-  import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { languageStore } from '$lib/store/language-store';
   import { strategies, selectedStrategy, fetchStrategies } from '$lib/store/strategy-store';
@@ -23,7 +23,6 @@
 
   let variablesJsonString = '';
 
-  // Parse JSON string and update variables store
   function updateVariables() {
     try {
       if (variablesJsonString.trim() === '') {
@@ -35,8 +34,7 @@
         }
       }
     } catch (e) {
-      // Don't update the store if JSON is invalid - just ignore the error
-      // This allows partial typing without breaking
+      // Ignore invalid JSON so the user can keep typing.
     }
   }
 
@@ -46,7 +44,6 @@
 </script>
 
 <div class="flex gap-4">
-  <!-- Left side - Dropdowns -->
   <div class="w-[35%] flex flex-col gap-3">
     <div>
       <Patterns />
@@ -75,6 +72,7 @@
         {/each}
       </Select>
     </div>
+    <SessionSelector />
     <div>
       <Label for="pattern-variables" class="text-xs text-white/70 mb-1 block">Pattern Variables (JSON)</Label>
       <textarea
@@ -88,7 +86,6 @@
     </div>
   </div>
 
-  <!-- Right side - Model Config -->
   <div class="w-[65%]">
     <ModelConfig />
   </div>

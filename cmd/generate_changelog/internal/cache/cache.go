@@ -202,13 +202,21 @@ func (c *Cache) GetVersions() (map[string]*git.Version, error) {
 		}
 
 		if dateStr.Valid {
-			// Try RFC3339Nano first (for nanosecond precision), then fall back to RFC3339
-			v.Date, err = time.Parse(time.RFC3339Nano, dateStr.String)
-			if err != nil {
-				v.Date, err = time.Parse(time.RFC3339, dateStr.String)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error parsing date '%s' for version '%s': %v. Expected format: RFC3339 or RFC3339Nano.\n", dateStr.String, v.Name, err)
+			dateFormats := []string{
+				"2006-01-02 15:04:05-07:00",           // SQLite DATETIME format
+				"2006-01-02 15:04:05.999999999-07:00", // SQLite with fractional seconds
+				time.RFC3339Nano,
+				time.RFC3339,
+			}
+			var parseErr error
+			for _, format := range dateFormats {
+				v.Date, parseErr = time.Parse(format, dateStr.String)
+				if parseErr == nil {
+					break
 				}
+			}
+			if parseErr != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing date '%s' for version '%s': %v\n", dateStr.String, v.Name, parseErr)
 			}
 		}
 

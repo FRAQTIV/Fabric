@@ -11,18 +11,23 @@ import (
 func TestFilePlugin(t *testing.T) {
 	plugin := &FilePlugin{}
 
-	// Create temp test files
 	tmpDir := t.TempDir()
 
-	testFile := filepath.Join(tmpDir, "test.txt")
+	// Use tmpDir as the root and relative file names. The plugin rejects
+	// absolute paths.
+	oldRoot := fileReadRoot
+	fileReadRoot = tmpDir
+	defer func() { fileReadRoot = oldRoot }()
+
+	const testFile = "test.txt"
 	content := "line1\nline2\nline3\nline4\nline5\n"
-	err := os.WriteFile(testFile, []byte(content), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, testFile), []byte(content), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	bigFile := filepath.Join(tmpDir, "big.txt")
-	err = os.WriteFile(bigFile, []byte(strings.Repeat("x", MaxFileSize+1)), 0644)
+	const bigFile = "big.txt"
+	err = os.WriteFile(filepath.Join(tmpDir, bigFile), []byte(strings.Repeat("x", MaxFileSize+1)), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +62,7 @@ func TestFilePlugin(t *testing.T) {
 		{
 			name:      "exists false",
 			operation: "exists",
-			value:     filepath.Join(tmpDir, "nonexistent.txt"),
+			value:     "nonexistent.txt",
 			want:      "false",
 		},
 		{
@@ -75,11 +80,10 @@ func TestFilePlugin(t *testing.T) {
 				return err == nil
 			},
 		},
-		// Error cases
 		{
 			name:        "read non-existent",
 			operation:   "read",
-			value:       filepath.Join(tmpDir, "nonexistent.txt"),
+			value:       "nonexistent.txt",
 			wantErr:     true,
 			errContains: "could not stat file",
 		},
@@ -124,7 +128,6 @@ func TestFilePlugin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := plugin.Apply(tt.operation, tt.value)
 
-			// Check error cases
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FilePlugin.Apply() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -137,7 +140,6 @@ func TestFilePlugin(t *testing.T) {
 				return
 			}
 
-			// Check success cases
 			if err == nil {
 				if tt.validate != nil {
 					if !tt.validate(got) {

@@ -1,17 +1,22 @@
 package restapi
 
 import (
+	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/danielmiessler/fabric/internal/core"
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,14 +45,15 @@ type APIConvert struct {
 	registry *core.PluginRegistry
 	r        *gin.Engine
 	addr     *string
+	apiKey   string
 }
 
 type OllamaRequestBody struct {
-	Messages []OllamaMessage `json:"messages"`
-	Model    string          `json:"model"`
-	Options  struct {
-	} `json:"options"`
-	Stream bool `json:"stream"`
+	Messages  []OllamaMessage   `json:"messages"`
+	Model     string            `json:"model"`
+	Options   map[string]any    `json:"options,omitempty"`
+	Stream    bool              `json:"stream"`
+	Variables map[string]string `json:"variables,omitempty"` // Fabric-specific: pattern variables (direct)
 }
 
 type OllamaMessage struct {
@@ -56,20 +62,17 @@ type OllamaMessage struct {
 }
 
 type OllamaResponse struct {
-	Model     string `json:"model"`
-	CreatedAt string `json:"created_at"`
-	Message   struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	} `json:"message"`
-	DoneReason         string `json:"done_reason,omitempty"`
-	Done               bool   `json:"done"`
-	TotalDuration      int64  `json:"total_duration,omitempty"`
-	LoadDuration       int    `json:"load_duration,omitempty"`
-	PromptEvalCount    int    `json:"prompt_eval_count,omitempty"`
-	PromptEvalDuration int    `json:"prompt_eval_duration,omitempty"`
-	EvalCount          int    `json:"eval_count,omitempty"`
-	EvalDuration       int64  `json:"eval_duration,omitempty"`
+	Model              string        `json:"model"`
+	CreatedAt          string        `json:"created_at"`
+	Message            OllamaMessage `json:"message"`
+	DoneReason         string        `json:"done_reason,omitempty"`
+	Done               bool          `json:"done"`
+	TotalDuration      int64         `json:"total_duration,omitempty"`
+	LoadDuration       int64         `json:"load_duration,omitempty"`
+	PromptEvalCount    int64         `json:"prompt_eval_count,omitempty"`
+	PromptEvalDuration int64         `json:"prompt_eval_duration,omitempty"`
+	EvalCount          int64         `json:"eval_count,omitempty"`
+	EvalDuration       int64         `json:"eval_duration,omitempty"`
 }
 
 type FabricResponseFormat struct {
@@ -78,14 +81,150 @@ type FabricResponseFormat struct {
 	Content string `json:"content"`
 }
 
-func ServeOllama(registry *core.PluginRegistry, address string, version string) (err error) {
-	r := gin.New()
+// parseOllamaNumCtx extracts and validates the num_ctx parameter from Ollama request options.
+// Returns:
+//   - (0, nil) if num_ctx is not present or is null
+//   - (n, nil) if num_ctx is a valid positive integer
+//   - (0, error) if num_ctx is present but invalid
+func parseOllamaNumCtx(options map[string]any) (int, error) {
+	if options == nil {
+		return 0, nil
+	}
 
-	// Middleware
-	r.Use(gin.Logger())
-	r.Use(gin.Recovery())
+	val, exists := options["num_ctx"]
+	if !exists {
+		return 0, nil // Not provided, caller should use default
+	}
 
-	// Register routes
+	if val == nil {
+		return 0, nil // Explicit null, treat as not provided
+	}
+
+	var contextLength int
+
+	// Platform-specific max int value for overflow checks
+	const maxInt = int64(^uint(0) >> 1)
+
+	switch v := val.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return 0, errors.New(i18n.T("ollama_num_ctx_must_be_finite"))
+		}
+		if math.Trunc(v) != v {
+			return 0, errors.New(i18n.T("ollama_num_ctx_must_be_integer"))
+		}
+		// Check for overflow on 32-bit systems (the contextLength <= 0 check below stops negative values)
+		if v > float64(maxInt) {
+			return 0, errors.New(i18n.T("ollama_num_ctx_value_out_of_range"))
+		}
+		contextLength = int(v)
+
+	case float32:
+		f64 := float64(v)
+		if math.IsNaN(f64) || math.IsInf(f64, 0) {
+			return 0, errors.New(i18n.T("ollama_num_ctx_must_be_finite"))
+		}
+		if math.Trunc(f64) != f64 {
+			return 0, errors.New(i18n.T("ollama_num_ctx_must_be_integer"))
+		}
+		// Check for overflow on 32-bit systems (the contextLength <= 0 check below stops negative values)
+		if f64 > float64(maxInt) {
+			return 0, errors.New(i18n.T("ollama_num_ctx_value_out_of_range"))
+		}
+		contextLength = int(v)
+
+	case int:
+		contextLength = v
+
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf(i18n.T("ollama_num_ctx_must_be_positive"), v)
+		}
+		if v > maxInt {
+			return 0, fmt.Errorf(i18n.T("ollama_num_ctx_value_too_large"), v)
+		}
+		contextLength = int(v)
+
+	case json.Number:
+		i64, err := v.Int64()
+		if err != nil {
+			return 0, errors.New(i18n.T("ollama_num_ctx_must_be_valid_number"))
+		}
+		if i64 < 0 {
+			return 0, fmt.Errorf(i18n.T("ollama_num_ctx_must_be_positive"), i64)
+		}
+		if i64 > maxInt {
+			return 0, fmt.Errorf(i18n.T("ollama_num_ctx_value_too_large"), i64)
+		}
+		contextLength = int(i64)
+
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			// Truncate long strings in error messages to avoid logging excessively large input
+			errVal := v
+			if len(v) > 50 {
+				errVal = v[:50] + "..."
+			}
+			return 0, fmt.Errorf(i18n.T("ollama_num_ctx_must_be_valid_number_got"), errVal)
+		}
+		contextLength = parsed
+
+	default:
+		return 0, errors.New(i18n.T("ollama_num_ctx_invalid_type"))
+	}
+
+	if contextLength <= 0 {
+		return 0, fmt.Errorf(i18n.T("ollama_num_ctx_must_be_positive"), contextLength)
+	}
+
+	const maxContextLength = 1000000
+	if contextLength > maxContextLength {
+		return 0, fmt.Errorf(i18n.T("ollama_num_ctx_exceeds_maximum"), maxContextLength)
+	}
+
+	return contextLength, nil
+}
+
+// fabricChatClient sends the /api/chat self-forward, which can contain
+// the configured API key. It does not use a proxy, because the default
+// transport obeys HTTP_PROXY and can send the key to the proxy. It does
+// not obey redirects, and cannot send the key again to a location that
+// the operator did not configure.
+var fabricChatClient = newFabricChatClient()
+
+func newFabricChatClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// ServeOllama operates the Ollama-compatible API server on address. An
+// empty apiKey sets authentication to off. This is permitted only for
+// loopback binds.
+func ServeOllama(registry *core.PluginRegistry, address string, version string, apiKey string, corsOrigins []string) error {
+	if err := requireAPIKeyForBind(address, apiKey); err != nil {
+		return err
+	}
+	corsOrigins, err := cleanCORSOrigins(corsOrigins, apiKey)
+	if err != nil {
+		return err
+	}
+	return newOllamaEngine(registry, address, version, apiKey, corsOrigins).Run(address)
+}
+
+// newOllamaEngine makes the engine but does not start it, which lets
+// tests operate the routes. The address parameter is the /api/chat
+// forward target, not the listen address that Run gets. In production
+// the two are the same value.
+func newOllamaEngine(registry *core.PluginRegistry, address string, version string, apiKey string, corsOrigins []string) *gin.Engine {
+	r := newSecuredEngine(registry, apiKey, corsOrigins, "Starting Ollama-compatible API server without API key authentication. This may pose security risks.")
+
 	fabricDb := registry.Db
 	NewPatternsHandler(r, fabricDb.Patterns)
 	NewContextsHandler(r, fabricDb.Contexts)
@@ -98,21 +237,15 @@ func ServeOllama(registry *core.PluginRegistry, address string, version string) 
 		registry: registry,
 		r:        r,
 		addr:     &address,
+		apiKey:   apiKey,
 	}
-	// Ollama Endpoints
 	r.GET("/api/tags", typeConversion.ollamaTags)
 	r.GET("/api/version", func(c *gin.Context) {
-		c.Data(200, "application/json", []byte(fmt.Sprintf("{\"%s\"}", version)))
+		c.Data(200, "application/json", fmt.Appendf(nil, "{\"%s\"}", version))
 	})
-	r.POST("/api/chat", typeConversion.ollamaChat)
+	r.POST("/api/chat", requireJSON, typeConversion.ollamaChat)
 
-	// Start server
-	err = r.Run(address)
-	if err != nil {
-		return err
-	}
-
-	return
+	return r
 }
 
 func (f APIConvert) ollamaTags(c *gin.Context) {
@@ -123,7 +256,7 @@ func (f APIConvert) ollamaTags(c *gin.Context) {
 	}
 	var response OllamaModel
 	for _, pattern := range patterns {
-		today := time.Now().Format("2024-11-25T12:07:58.915991813-05:00")
+		today := time.Now().Format(time.RFC3339Nano)
 		details := ModelDetails{
 			Families:          []string{"fabric"},
 			Family:            "fabric",
@@ -149,122 +282,285 @@ func (f APIConvert) ollamaTags(c *gin.Context) {
 func (f APIConvert) ollamaChat(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		log.Printf("Error reading body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "testing endpoint"})
+		log.Printf(i18n.T("ollama_error_reading_body"), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_error_endpoint")})
 		return
 	}
 	var prompt OllamaRequestBody
 	err = json.Unmarshal(body, &prompt)
 	if err != nil {
-		log.Printf("Error unmarshalling body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "testing endpoint"})
+		log.Printf(i18n.T("ollama_error_unmarshalling_body"), err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": i18n.T("ollama_invalid_request_body")})
 		return
 	}
+
+	numCtx, err := parseOllamaNumCtx(prompt.Options)
+	if err != nil {
+		log.Printf(i18n.T("ollama_invalid_num_ctx_in_request"), err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	now := time.Now()
 	var chat ChatRequest
 
-	if len(prompt.Messages) == 1 {
-		chat.Prompts = []PromptRequest{{
-			UserInput:   prompt.Messages[0].Content,
-			Vendor:      "",
-			Model:       "",
-			ContextName: "",
-			PatternName: strings.Split(prompt.Model, ":")[0],
-		}}
-	} else if len(prompt.Messages) > 1 {
-		var content string
-		for _, msg := range prompt.Messages {
-			content = fmt.Sprintf("%s%s:%s\n", content, msg.Role, msg.Content)
+	variables := prompt.Variables
+	if variables == nil && prompt.Options != nil {
+		if optVars, ok := prompt.Options["variables"]; ok {
+			switch v := optVars.(type) {
+			case string:
+				if err := json.Unmarshal([]byte(v), &variables); err != nil {
+					log.Printf(i18n.T("ollama_warning_parse_variables"), err)
+				}
+			case map[string]any:
+				variables = make(map[string]string)
+				for k, val := range v {
+					if s, ok := val.(string); ok {
+						variables[k] = s
+					}
+				}
+			}
+		}
+	}
+
+	if len(prompt.Messages) > 0 {
+		userInput := prompt.Messages[0].Content
+		if len(prompt.Messages) > 1 {
+			var b strings.Builder
+			for _, msg := range prompt.Messages {
+				fmt.Fprintf(&b, "%s:%s\n", msg.Role, msg.Content)
+			}
+			userInput = b.String()
 		}
 		chat.Prompts = []PromptRequest{{
-			UserInput:   content,
-			Vendor:      "",
-			Model:       "",
-			ContextName: "",
+			UserInput:   userInput,
 			PatternName: strings.Split(prompt.Model, ":")[0],
+			Variables:   variables,
 		}}
 	}
+
+	chat.ModelContextLength = numCtx
+
 	fabricChatReq, err := json.Marshal(chat)
 	if err != nil {
-		log.Printf("Error marshalling body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		log.Printf(i18n.T("ollama_error_marshalling_body"), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_failed_create_request")})
 		return
 	}
-	ctx := context.Background()
 	var req *http.Request
-	if strings.Contains(*f.addr, "http") {
-		req, err = http.NewRequest("POST", fmt.Sprintf("%s/chat", *f.addr), bytes.NewBuffer(fabricChatReq))
-	} else {
-		req, err = http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1%s/chat", *f.addr), bytes.NewBuffer(fabricChatReq))
-	}
+	baseURL, err := buildFabricChatURL(*f.addr)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf(i18n.T("ollama_error_building_chat_url"), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_failed_create_request")})
+		return
+	}
+	req, err = http.NewRequest("POST", fmt.Sprintf("%s/chat", baseURL), bytes.NewBuffer(fabricChatReq))
+	if err != nil {
+		log.Printf(i18n.T("ollama_error_creating_chat_request"), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_failed_create_request")})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if f.apiKey != "" {
+		req.Header.Set(APIKeyHeader, f.apiKey)
 	}
 
-	req = req.WithContext(ctx)
+	req = req.WithContext(c.Request.Context())
 
-	fabricRes, err := http.DefaultClient.Do(req)
+	fabricRes, err := fabricChatClient.Do(req)
 	if err != nil {
-		log.Printf("Error getting /chat body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		log.Printf(i18n.T("ollama_error_getting_chat_body"), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_upstream_request_failed")})
 		return
 	}
-	body, err = io.ReadAll(fabricRes.Body)
-	if err != nil {
-		log.Printf("Error reading body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "testing endpoint"})
-		return
+	defer fabricRes.Body.Close()
+
+	if prompt.Stream {
+		c.Header("Content-Type", "application/x-ndjson")
 	}
-	var forwardedResponse OllamaResponse
-	var forwardedResponses []OllamaResponse
-	var fabricResponse FabricResponseFormat
-	err = json.Unmarshal([]byte(strings.Split(strings.Split(string(body), "\n")[0], "data: ")[1]), &fabricResponse)
-	if err != nil {
-		log.Printf("Error unmarshalling body: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "testing endpoint"})
-		return
-	}
-	for _, word := range strings.Split(fabricResponse.Content, " ") {
-		forwardedResponse = OllamaResponse{
-			Model:     "",
-			CreatedAt: "",
-			Message: struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			}(struct {
-				Role    string
-				Content string
-			}{Content: fmt.Sprintf("%s ", word), Role: "assistant"}),
-			Done: false,
+
+	if fabricRes.StatusCode < http.StatusOK || fabricRes.StatusCode >= http.StatusMultipleChoices {
+		bodyBytes, readErr := io.ReadAll(fabricRes.Body)
+		if readErr != nil {
+			log.Printf(i18n.T("ollama_upstream_non_2xx_body_unreadable"), fabricRes.StatusCode, readErr)
+		} else {
+			log.Printf(i18n.T("ollama_upstream_non_2xx"), fabricRes.StatusCode, string(bodyBytes))
 		}
-		forwardedResponses = append(forwardedResponses, forwardedResponse)
-	}
-	forwardedResponse.Model = prompt.Model
-	forwardedResponse.CreatedAt = time.Now().UTC().Format("2006-01-02T15:04:05.999999999Z")
-	forwardedResponse.Message.Role = "assistant"
-	forwardedResponse.Message.Content = ""
-	forwardedResponse.DoneReason = "stop"
-	forwardedResponse.Done = true
-	forwardedResponse.TotalDuration = time.Since(now).Nanoseconds()
-	forwardedResponse.LoadDuration = int(time.Since(now).Nanoseconds())
-	forwardedResponse.PromptEvalCount = 42
-	forwardedResponse.PromptEvalDuration = int(time.Since(now).Nanoseconds())
-	forwardedResponse.EvalCount = 420
-	forwardedResponse.EvalDuration = time.Since(now).Nanoseconds()
-	forwardedResponses = append(forwardedResponses, forwardedResponse)
 
-	var res []byte
-	for _, response := range forwardedResponses {
-		marshalled, err := json.Marshal(response)
-		if err != nil {
-			log.Printf("Error marshalling body: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
+		replyOllamaError(c, prompt, fabricRes.StatusCode, fmt.Sprintf(i18n.T("ollama_upstream_returned_status"), fabricRes.StatusCode))
+		return
+	}
+
+	var contentBuilder strings.Builder
+	scanner := bufio.NewScanner(fabricRes.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		var fabricResponse FabricResponseFormat
+		if err := json.Unmarshal([]byte(payload), &fabricResponse); err != nil {
+			log.Printf(i18n.T("ollama_error_unmarshalling_body"), err)
+			if prompt.Stream {
+				// In streaming mode, send the error in the same streaming format
+				_ = writeOllamaResponse(c, prompt.Model, i18n.T("ollama_error_parse_upstream_response"), true)
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": i18n.T("ollama_failed_unmarshal_fabric_response")})
+			}
 			return
 		}
-		res = append(res, marshalled...)
-		res = append(res, '\n')
+		if fabricResponse.Type == "error" {
+			replyOllamaError(c, prompt, http.StatusInternalServerError, fabricResponse.Content)
+			return
+		}
+		if fabricResponse.Type != "content" {
+			continue
+		}
+		contentBuilder.WriteString(fabricResponse.Content)
+		if prompt.Stream {
+			if err := writeOllamaResponse(c, prompt.Model, fabricResponse.Content, false); err != nil {
+				log.Printf(i18n.T("ollama_error_writing_response"), err)
+				return
+			}
+		}
 	}
-	c.Data(200, "application/json", res)
+	if err := scanner.Err(); err != nil {
+		log.Printf(i18n.T("ollama_error_scanning_body"), err)
+		errorMsg := fmt.Sprintf(i18n.T("ollama_failed_scan_sse_stream"), err)
+		// Check for buffer size exceeded error
+		if strings.Contains(err.Error(), "token too long") {
+			errorMsg = i18n.T("ollama_sse_buffer_limit")
+		}
+		replyOllamaError(c, prompt, http.StatusInternalServerError, errorMsg)
+		return
+	}
 
-	//c.JSON(200, forwardedResponse)
+	// Capture duration once for consistent timing values
+	duration := time.Since(now).Nanoseconds()
+
+	// Check if we received any content from upstream
+	if contentBuilder.Len() == 0 {
+		log.Printf("%s", i18n.T("ollama_warning_no_content"))
+		// In non-streaming mode, treat absence of content as an error
+		if !prompt.Stream {
+			c.JSON(http.StatusBadGateway, gin.H{"error": i18n.T("ollama_no_content_from_upstream")})
+			return
+		}
+	}
+
+	if !prompt.Stream {
+		response := buildFinalOllamaResponse(prompt.Model, contentBuilder.String(), duration)
+		c.JSON(200, response)
+		return
+	}
+
+	finalResponse := buildFinalOllamaResponse(prompt.Model, "", duration)
+	if err := writeOllamaResponseStruct(c, finalResponse); err != nil {
+		log.Printf(i18n.T("ollama_error_writing_response"), err)
+	}
+}
+
+// buildFinalOllamaResponse constructs the final OllamaResponse with timing metrics
+// and the complete message content. Used for both streaming and non-streaming final responses.
+func buildFinalOllamaResponse(model string, content string, duration int64) OllamaResponse {
+	return OllamaResponse{
+		Model:              model,
+		CreatedAt:          time.Now().UTC().Format("2006-01-02T15:04:05.999999999Z"),
+		Message:            OllamaMessage{Role: "assistant", Content: content},
+		DoneReason:         "stop",
+		Done:               true,
+		TotalDuration:      duration,
+		LoadDuration:       duration,
+		PromptEvalDuration: duration,
+		EvalDuration:       duration,
+	}
+}
+
+// buildFabricChatURL constructs a valid HTTP/HTTPS base URL from various address
+// formats. It accepts fully-qualified URLs (http:// or https://), :port shorthand
+// which is resolved to http://127.0.0.1:port, and bare host[:port] addresses. It
+// returns a normalized URL string without a trailing slash, or an error if the
+// address is empty, invalid, missing a host/hostname, or (for bare addresses)
+// contains a path component.
+func buildFabricChatURL(addr string) (string, error) {
+	if addr == "" {
+		return "", errors.New(i18n.T("ollama_empty_address"))
+	}
+	if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+		parsed, err := url.Parse(addr)
+		if err != nil {
+			return "", fmt.Errorf(i18n.T("ollama_invalid_address"), err)
+		}
+		if parsed.Host == "" {
+			return "", errors.New(i18n.T("ollama_invalid_address_missing_host"))
+		}
+		if strings.HasPrefix(parsed.Host, ":") {
+			return "", errors.New(i18n.T("ollama_invalid_address_missing_hostname"))
+		}
+		return strings.TrimRight(parsed.String(), "/"), nil
+	}
+	if strings.HasPrefix(addr, ":") {
+		return fmt.Sprintf("http://127.0.0.1%s", addr), nil
+	}
+	// Validate bare addresses (without http/https prefix)
+	parsed, err := url.Parse("http://" + addr)
+	if err != nil {
+		return "", fmt.Errorf(i18n.T("ollama_invalid_address"), err)
+	}
+	if parsed.Host == "" {
+		return "", errors.New(i18n.T("ollama_invalid_address_missing_host"))
+	}
+	if strings.HasPrefix(parsed.Host, ":") {
+		return "", errors.New(i18n.T("ollama_invalid_address_missing_hostname"))
+	}
+	// Bare addresses should be host[:port] only - reject path components
+	if parsed.Path != "" && parsed.Path != "/" {
+		return "", errors.New(i18n.T("ollama_invalid_address_path_not_allowed"))
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+// writeOllamaResponse constructs an Ollama-formatted response chunk and writes it
+// to the streaming output associated with the provided Gin context. The model
+// parameter identifies the model, content is the assistant message text, and
+// done indicates whether this is the final chunk in the stream.
+func writeOllamaResponse(c *gin.Context, model string, content string, done bool) error {
+	response := OllamaResponse{
+		Model:     model,
+		CreatedAt: time.Now().UTC().Format("2006-01-02T15:04:05.999999999Z"),
+		Message:   OllamaMessage{Role: "assistant", Content: content},
+		Done:      done,
+	}
+	return writeOllamaResponseStruct(c, response)
+}
+
+// replyOllamaError sends msg as a final prefixed NDJSON chunk in stream
+// mode, or as a JSON error body with status in other modes.
+func replyOllamaError(c *gin.Context, prompt OllamaRequestBody, status int, msg string) {
+	if prompt.Stream {
+		_ = writeOllamaResponse(c, prompt.Model, fmt.Sprintf(i18n.T("ollama_error_prefix"), msg), true)
+		return
+	}
+	c.JSON(status, gin.H{"error": msg})
+}
+
+// writeOllamaResponseStruct marshals the provided OllamaResponse and writes it
+// as newline-delimited JSON to the HTTP response stream.
+func writeOllamaResponseStruct(c *gin.Context, response OllamaResponse) error {
+	marshalled, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	if _, err := c.Writer.Write(marshalled); err != nil {
+		return err
+	}
+	if _, err := c.Writer.Write([]byte("\n")); err != nil {
+		return err
+	}
+	if flusher, ok := c.Writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
 }

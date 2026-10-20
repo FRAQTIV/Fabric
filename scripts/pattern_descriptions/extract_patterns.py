@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
-"""Extracts pattern information from the ~/.config/fabric/patterns directory,
-creates JSON files for pattern extracts and descriptions, and updates web static files.
+"""Extracts pattern information from the ~/.config/fabric/patterns directory
+and creates JSON files for pattern extracts and descriptions.
+
+Note: The web static copy is handled by npm prebuild hook in web/package.json.
 """
+
 import os
 import json
-import shutil
 
 
 def load_existing_file(filepath):
@@ -33,7 +35,13 @@ def get_pattern_extract(pattern_path):
 def extract_pattern_info():
     """Extract pattern information from the patterns directory"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    patterns_dir = os.path.expanduser("~/.config/fabric/patterns")
+    local_patterns_dir = os.path.join(script_dir, "..", "..", "data", "patterns")
+
+    if os.path.exists(local_patterns_dir):
+        patterns_dir = local_patterns_dir
+    else:
+        patterns_dir = os.path.expanduser("~/.config/fabric/patterns")
+
     print(f"\nScanning patterns directory: {patterns_dir}")
 
     extracts_path = os.path.join(script_dir, "pattern_extracts.json")
@@ -94,17 +102,8 @@ def extract_pattern_info():
     return existing_extracts, existing_descriptions, len(new_descriptions)
 
 
-def update_web_static(descriptions_path):
-    """Copy pattern descriptions to web static directory"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    static_dir = os.path.join(script_dir, "..", "..", "web", "static", "data")
-    os.makedirs(static_dir, exist_ok=True)
-    static_path = os.path.join(static_dir, "pattern_descriptions.json")
-    shutil.copy2(descriptions_path, static_path)
-
-
 def save_pattern_files():
-    """Save both pattern files and sync to web"""
+    """Save pattern extracts and descriptions JSON files"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     extracts_path = os.path.join(script_dir, "pattern_extracts.json")
     descriptions_path = os.path.join(script_dir, "pattern_descriptions.json")
@@ -117,9 +116,6 @@ def save_pattern_files():
 
     with open(descriptions_path, "w", encoding="utf-8") as f:
         json.dump(pattern_descriptions, f, indent=2, ensure_ascii=False)
-
-    # Update web static
-    update_web_static(descriptions_path)
 
     print("\nProcessing complete:")
     print(f"Total patterns: {len(pattern_descriptions['patterns'])}")

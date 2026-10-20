@@ -12,6 +12,7 @@ on:
       - "scripts/pattern_descriptions/*.json"
       - "web/static/data/pattern_descriptions.json"
       - "**/*.md"
+      - .vscode/**
 
 permissions:
   contents: write # Ensure the workflow has write permissions
@@ -23,17 +24,17 @@ concurrency:
 jobs:
   update-version:
     if: >
-      ${{ github.repository_owner == 'danielmiessler' }} &&
+      github.repository_owner == 'danielmiessler' &&
       github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
+        uses: DeterminateSystems/nix-installer-action@v21
 
       - name: Set up Git
         run: |
@@ -93,7 +94,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           go run ./cmd/generate_changelog --process-prs ${{ steps.increment_version.outputs.new_tag }}
-          go run ./cmd/generate_changelog --sync-db
+          git add ./cmd/generate_changelog/changelog.db
       - name: Commit changes
         run: |
           # These files are modified by the version bump process

@@ -1,24 +1,44 @@
 # Read the documentation at https://goreleaser.com
+# For a full reference of the configuration file.
 
 version: 2
 
 project_name: fabric
 before:
   hooks:
-    # You may remove this if you don't use go modules.
     - go mod tidy
-    # you may remove this if you don't need go generate
-    # - go generate ./...
 
 builds:
-  - env:
+  - id: default
+    env:
       - CGO_ENABLED=0
     goos:
-      - linux
-      - windows
       - darwin
+      - linux
     main: ./cmd/fabric
     binary: fabric
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+      - -X main.tag={{.Tag}}
+
+  - id: windows-build
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    main: ./cmd/fabric
+    binary: fabric
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+      - -X main.tag={{.Tag}}
 
 archives:
   - formats: [tar.gz]

@@ -1,26 +1,27 @@
 package openai
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/danielmiessler/fabric/internal/chat"
 	"github.com/danielmiessler/fabric/internal/domain"
-	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestShouldUseImageGeneration(t *testing.T) {
 	client := NewClient()
 
-	// Test with image file specified
 	opts := &domain.ChatOptions{
 		ImageFile: "output.png",
 	}
 	assert.True(t, client.shouldUseImageGeneration(opts), "Should use image generation when image file is specified")
 
-	// Test without image file
 	opts = &domain.ChatOptions{
 		ImageFile: "",
 	}
@@ -30,7 +31,6 @@ func TestShouldUseImageGeneration(t *testing.T) {
 func TestAddImageGenerationTool(t *testing.T) {
 	client := NewClient()
 
-	// Test with image generation enabled
 	opts := &domain.ChatOptions{
 		ImageFile: "output.png",
 	}
@@ -43,7 +43,6 @@ func TestAddImageGenerationTool(t *testing.T) {
 	assert.Equal(t, "gpt-image-1", result[0].OfImageGeneration.Model)
 	assert.Equal(t, "png", result[0].OfImageGeneration.OutputFormat)
 
-	// Test without image generation
 	opts = &domain.ChatOptions{
 		ImageFile: "",
 	}
@@ -68,7 +67,6 @@ func TestBuildResponseParams_WithImageGeneration(t *testing.T) {
 
 	assert.NotNil(t, params.Tools, "Expected tools when image generation is enabled")
 
-	// Should have image generation tool
 	hasImageTool := false
 	for _, tool := range params.Tools {
 		if tool.OfImageGeneration != nil {
@@ -228,24 +226,24 @@ func TestSupportsImageGeneration(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "gpt-4o supports image generation",
+			name:     "gpt-4o does not support image generation (deprecated)",
 			model:    "gpt-4o",
-			expected: true,
+			expected: false,
 		},
 		{
-			name:     "gpt-4o-mini supports image generation",
+			name:     "gpt-4o-mini does not support image generation (deprecated)",
 			model:    "gpt-4o-mini",
-			expected: true,
+			expected: false,
 		},
 		{
-			name:     "gpt-4.1 supports image generation",
+			name:     "gpt-4.1 does not support image generation (deprecated)",
 			model:    "gpt-4.1",
-			expected: true,
+			expected: false,
 		},
 		{
-			name:     "gpt-4.1-mini supports image generation",
+			name:     "gpt-4.1-mini does not support image generation (deprecated)",
 			model:    "gpt-4.1-mini",
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "gpt-4.1-nano supports image generation",
@@ -255,6 +253,21 @@ func TestSupportsImageGeneration(t *testing.T) {
 		{
 			name:     "o3 supports image generation",
 			model:    "o3",
+			expected: true,
+		},
+		{
+			name:     "gpt-5 supports image generation",
+			model:    "gpt-5",
+			expected: true,
+		},
+		{
+			name:     "gpt-5-nano supports image generation",
+			model:    "gpt-5-nano",
+			expected: true,
+		},
+		{
+			name:     "gpt-5.2 supports image generation",
+			model:    "gpt-5.2",
 			expected: true,
 		},
 		{
@@ -304,7 +317,6 @@ func TestModelValidationLogic(t *testing.T) {
 			ImageFile: "/tmp/output.png",
 		}
 
-		// Test the validation logic directly
 		if opts.ImageFile != "" && !supportsImageGeneration(opts.Model) {
 			err := fmt.Errorf("model '%s' does not support image generation. Supported models: %s", opts.Model, strings.Join(ImageGenerationSupportedModels, ", "))
 
@@ -318,11 +330,10 @@ func TestModelValidationLogic(t *testing.T) {
 
 	t.Run("Supported model with image file should not trigger validation", func(t *testing.T) {
 		opts := &domain.ChatOptions{
-			Model:     "gpt-4o",
+			Model:     "gpt-5.2",
 			ImageFile: "/tmp/output.png",
 		}
 
-		// Test the validation logic directly
 		shouldFail := opts.ImageFile != "" && !supportsImageGeneration(opts.Model)
 		assert.False(t, shouldFail, "Validation should not trigger for supported model")
 	})
@@ -330,10 +341,9 @@ func TestModelValidationLogic(t *testing.T) {
 	t.Run("Unsupported model without image file should not trigger validation", func(t *testing.T) {
 		opts := &domain.ChatOptions{
 			Model:     "o1-mini",
-			ImageFile: "", // No image file
+			ImageFile: "",
 		}
 
-		// Test the validation logic directly
 		shouldFail := opts.ImageFile != "" && !supportsImageGeneration(opts.Model)
 		assert.False(t, shouldFail, "Validation should not trigger when no image file is specified")
 	})
@@ -345,7 +355,7 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 	tests := []struct {
 		name     string
 		opts     *domain.ChatOptions
-		expected map[string]interface{}
+		expected map[string]any
 	}{
 		{
 			name: "All parameters specified",
@@ -356,7 +366,7 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 				ImageBackground:  "transparent",
 				ImageCompression: 0, // Not applicable for PNG
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"size":          "1536x1024",
 				"quality":       "high",
 				"background":    "transparent",
@@ -372,7 +382,7 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 				ImageBackground:  "opaque",
 				ImageCompression: 75,
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"size":               "1024x1024",
 				"quality":            "medium",
 				"background":         "opaque",
@@ -386,7 +396,7 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 				ImageFile:    "/tmp/test.webp",
 				ImageQuality: "low",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"quality":       "low",
 				"output_format": "webp",
 			},
@@ -396,7 +406,7 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 			opts: &domain.ChatOptions{
 				ImageFile: "/tmp/test.png",
 			},
-			expected: map[string]interface{}{
+			expected: map[string]any{
 				"output_format": "png",
 			},
 		},
@@ -411,11 +421,9 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 
 			tool := tools[0].OfImageGeneration
 
-			// Check required fields
 			assert.Equal(t, "gpt-image-1", tool.Model)
 			assert.Equal(t, tt.expected["output_format"], tool.OutputFormat)
 
-			// Check optional fields
 			if expectedSize, ok := tt.expected["size"]; ok {
 				assert.Equal(t, expectedSize, tool.Size)
 			} else {
@@ -438,6 +446,157 @@ func TestAddImageGenerationToolWithUserParameters(t *testing.T) {
 				assert.Equal(t, expectedCompression, tool.OutputCompression.Value)
 			} else {
 				assert.Equal(t, int64(0), tool.OutputCompression.Value, "Compression should not be set when not specified")
+			}
+		})
+	}
+}
+
+func TestCheckImageGenerationCompatibility(t *testing.T) {
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	tests := []struct {
+		name          string
+		model         string
+		expectWarning bool
+		expectedText  string
+	}{
+		{
+			name:          "Supported model - no warning",
+			model:         "gpt-5.2",
+			expectWarning: false,
+		},
+		{
+			name:          "Unsupported model - warning expected",
+			model:         "o1-mini",
+			expectWarning: true,
+			expectedText:  "Warning: Model 'o1-mini' does not support image generation",
+		},
+		{
+			name:          "Another unsupported model - warning expected",
+			model:         "gpt-3.5-turbo",
+			expectWarning: true,
+			expectedText:  "Warning: Model 'gpt-3.5-turbo' does not support image generation",
+		},
+		{
+			name:          "Supported o3 model - no warning",
+			model:         "o3",
+			expectWarning: false,
+		},
+		{
+			name:          "Empty model - warning expected",
+			model:         "",
+			expectWarning: true,
+			expectedText:  "Warning: Model '' does not support image generation",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, w, _ = os.Pipe()
+			os.Stderr = w
+
+			checkImageGenerationCompatibility(tt.model)
+
+			w.Close()
+			var buf bytes.Buffer
+			buf.ReadFrom(r)
+			output := buf.String()
+
+			if tt.expectWarning {
+				assert.NotEmpty(t, output, "Expected warning output for unsupported model")
+				assert.Contains(t, output, tt.expectedText, "Warning message should contain model name")
+				assert.Contains(t, output, "Supported models:", "Warning should mention supported models")
+				assert.Contains(t, output, "gpt-5.2", "Warning should suggest gpt-5.2")
+			} else {
+				assert.Empty(t, output, "No warning expected for supported model")
+			}
+		})
+	}
+
+	os.Stderr = oldStderr
+}
+
+func TestSendResponses_WithWarningIntegration(t *testing.T) {
+	client := NewClient()
+	client.ApiKey.Value = "test-api-key"
+	client.ApiBaseURL.Value = "https://api.openai.com/v1"
+	client.ImplementsResponses = true
+	client.Configure()
+
+	tests := []struct {
+		name          string
+		model         string
+		imageFile     string
+		expectWarning bool
+		expectError   bool
+		expectedError string
+	}{
+		{
+			name:          "Unsupported model with image - warning then error",
+			model:         "o1-mini",
+			imageFile:     "test.png",
+			expectWarning: true,
+			expectError:   true,
+			expectedError: "model 'o1-mini' does not support image generation",
+		},
+		{
+			name:          "Supported model with image - no warning, no error",
+			model:         "gpt-5.2",
+			imageFile:     "test.png",
+			expectWarning: false,
+			expectError:   false,
+		},
+		{
+			name:          "Unsupported model without image - no warning, no error",
+			model:         "o1-mini",
+			imageFile:     "",
+			expectWarning: false,
+			expectError:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldStderr := os.Stderr
+			r, w, _ := os.Pipe()
+			os.Stderr = w
+
+			opts := &domain.ChatOptions{
+				Model:     tt.model,
+				ImageFile: tt.imageFile,
+			}
+
+			msgs := []*chat.ChatCompletionMessage{
+				{Role: "user", Content: "Generate an image"},
+			}
+
+			_, err := client.sendResponses(context.TODO(), msgs, opts)
+
+			w.Close()
+			var buf bytes.Buffer
+			buf.ReadFrom(r)
+			warningOutput := buf.String()
+
+			os.Stderr = oldStderr
+
+			if tt.expectWarning {
+				assert.NotEmpty(t, warningOutput, "Expected warning output")
+				assert.Contains(t, warningOutput, "Warning: Model '"+tt.model+"' does not support image generation")
+			} else {
+				assert.Empty(t, warningOutput, "No warning expected")
+			}
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error for unsupported model with image")
+				assert.Contains(t, err.Error(), tt.expectedError)
+			} else {
+				// The call fails without a real API key. Only the image validation error is wrong here.
+				if err != nil {
+					assert.NotContains(t, err.Error(), "does not support image generation",
+						"Should not get image generation error for supported cases")
+				}
 			}
 		})
 	}

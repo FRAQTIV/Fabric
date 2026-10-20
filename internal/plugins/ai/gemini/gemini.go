@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/danielmiessler/fabric/internal/chat"
-	"github.com/danielmiessler/fabric/internal/plugins"
-
 	"github.com/danielmiessler/fabric/internal/domain"
+	"github.com/danielmiessler/fabric/internal/i18n"
+	"github.com/danielmiessler/fabric/internal/plugins"
+	"github.com/danielmiessler/fabric/internal/plugins/ai/geminicommon"
 	"google.golang.org/genai"
 )
 
@@ -29,14 +32,10 @@ const (
 )
 
 const (
-	citationHeader    = "\n\n## Sources\n\n"
-	citationSeparator = "\n"
-	citationFormat    = "- [%s](%s)"
-
-	errInvalidLocationFormat = "invalid search location format %q: must be timezone (e.g., 'America/Los_Angeles') or language code (e.g., 'en-US')"
-	locationSeparator        = "/"
-	langCodeSeparator        = "_"
-	langCodeNormalizedSep    = "-"
+	errInvalidLocationFormatKey = "gemini_invalid_location_format"
+	locationSeparator           = "/"
+	langCodeSeparator           = "_"
+	langCodeNormalizedSep       = "-"
 
 	modelPrefix           = "models/"
 	modelTypeTTS          = "tts"
@@ -50,10 +49,7 @@ func NewClient() (ret *Client) {
 	vendorName := "Gemini"
 	ret = &Client{}
 
-	ret.PluginBase = &plugins.PluginBase{
-		Name:          vendorName,
-		EnvNamePrefix: plugins.BuildEnvVariablePrefix(vendorName),
-	}
+	ret.PluginBase = plugins.NewVendorPluginBase(vendorName, nil)
 
 	ret.ApiKey = ret.PluginBase.AddSetupQuestion("API key", true)
 
@@ -65,7 +61,7 @@ type Client struct {
 	ApiKey *plugins.SetupQuestion
 }
 
-func (o *Client) ListModels() (ret []string, err error) {
+func (o *Client) ListModels(_ context.Context) (ret []string, err error) {
 	ctx := context.Background()
 	var client *genai.Client
 	if client, err = genai.NewClient(ctx, &genai.ClientConfig{
@@ -75,14 +71,12 @@ func (o *Client) ListModels() (ret []string, err error) {
 		return
 	}
 
-	// List available models using the correct API
 	resp, err := client.Models.List(ctx, &genai.ListModelsConfig{})
 	if err != nil {
 		return nil, err
 	}
 
 	for _, model := range resp.Items {
-		// Strip the "models/" prefix for user convenience
 		modelName := strings.TrimPrefix(model.Name, "models/")
 		ret = append(ret, modelName)
 	}
@@ -90,18 +84,15 @@ func (o *Client) ListModels() (ret []string, err error) {
 }
 
 func (o *Client) Send(ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions) (ret string, err error) {
-	// Check if this is a TTS model request
 	if o.isTTSModel(opts.Model) {
 		if !opts.AudioOutput {
-			err = fmt.Errorf("TTS model '%s' requires audio output. Please specify an audio output file with -o flag ending in .wav", opts.Model)
+			err = fmt.Errorf(i18n.T("tts_model_requires_audio_output"), opts.Model)
 			return
 		}
 
-		// Handle TTS generation
 		return o.generateTTSAudio(ctx, msgs, opts)
 	}
 
-	// Regular text generation
 	var client *genai.Client
 	if client, err = genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  o.ApiKey.Value,
@@ -110,27 +101,26 @@ func (o *Client) Send(ctx context.Context, msgs []*chat.ChatCompletionMessage, o
 		return
 	}
 
-	// Convert messages to new SDK format
-	contents := o.convertMessages(msgs)
+	contents := geminicommon.ConvertMessages(msgs)
 
 	cfg, err := o.buildGenerateContentConfig(opts)
 	if err != nil {
 		return "", err
 	}
 
-	// Generate content with optional tools
 	response, err := client.Models.GenerateContent(ctx, o.buildModelNameFull(opts.Model), contents, cfg)
 	if err != nil {
 		return "", err
 	}
 
-	// Extract text from response
-	ret = o.extractTextFromResponse(response)
+	ret = geminicommon.ExtractTextWithCitations(response)
 	return
 }
 
-func (o *Client) SendStream(msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan string) (err error) {
+func (o *Client) SendStream(_ context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan domain.StreamUpdate) (err error) {
 	ctx := context.Background()
+	defer close(channel)
+
 	var client *genai.Client
 	if client, err = genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  o.ApiKey.Value,
@@ -139,36 +129,45 @@ func (o *Client) SendStream(msgs []*chat.ChatCompletionMessage, opts *domain.Cha
 		return
 	}
 
-	// Convert messages to new SDK format
-	contents := o.convertMessages(msgs)
+	contents := geminicommon.ConvertMessages(msgs)
 
 	cfg, err := o.buildGenerateContentConfig(opts)
 	if err != nil {
 		return err
 	}
 
-	// Generate streaming content with optional tools
 	stream := client.Models.GenerateContentStream(ctx, o.buildModelNameFull(opts.Model), contents, cfg)
 
 	for response, err := range stream {
 		if err != nil {
-			channel <- fmt.Sprintf("Error: %v\n", err)
-			close(channel)
-			break
+			channel <- domain.StreamUpdate{
+				Type:    domain.StreamTypeError,
+				Content: fmt.Sprintf(i18n.T("gemini_stream_error"), err),
+			}
+			return err
 		}
 
-		text := o.extractTextFromResponse(response)
+		text := geminicommon.ExtractTextWithCitations(response)
 		if text != "" {
-			channel <- text
+			channel <- domain.StreamUpdate{
+				Type:    domain.StreamTypeContent,
+				Content: text,
+			}
+		}
+
+		if response.UsageMetadata != nil {
+			channel <- domain.StreamUpdate{
+				Type: domain.StreamTypeUsage,
+				Usage: &domain.UsageMetadata{
+					InputTokens:  int(response.UsageMetadata.PromptTokenCount),
+					OutputTokens: int(response.UsageMetadata.CandidatesTokenCount),
+					TotalTokens:  int(response.UsageMetadata.TotalTokenCount),
+				},
+			}
 		}
 	}
-	close(channel)
 
 	return
-}
-
-func (o *Client) NeedsRawMode(modelName string) bool {
-	return false
 }
 
 func parseThinkingConfig(level domain.ThinkingLevel) (*genai.ThinkingConfig, bool) {
@@ -190,21 +189,24 @@ func parseThinkingConfig(level domain.ThinkingLevel) (*genai.ThinkingConfig, boo
 	return nil, false
 }
 
-// buildGenerateContentConfig constructs the generation config with optional tools.
-// When search is enabled it injects the Google Search tool. The optional search
-// location accepts either:
-//   - A timezone in the format "Continent/City" (e.g., "America/Los_Angeles")
-//   - An ISO language code "ll" or "ll-CC" (e.g., "en" or "en-US")
+// buildGenerateContentConfig builds the request config. When opts.Search is
+// set, it adds the Google Search tool. The search location accepts two forms:
+//   - "Continent/City", for example "America/Los_Angeles"
+//   - an ISO language code "ll" or "ll-CC", for example "en" or "en-US"
 //
-// Underscores are normalized to hyphens. Returns an error if the location is
-// invalid.
+// In a language code, the first underscore becomes a hyphen. An invalid
+// location returns an error.
 func (o *Client) buildGenerateContentConfig(opts *domain.ChatOptions) (*genai.GenerateContentConfig, error) {
 	temperature := float32(opts.Temperature)
 	topP := float32(opts.TopP)
+	var maxTokens int32
+	if opts.MaxTokens > 0 {
+		maxTokens = int32(opts.MaxTokens)
+	}
 	cfg := &genai.GenerateContentConfig{
 		Temperature:     &temperature,
 		TopP:            &topP,
-		MaxOutputTokens: int32(opts.ModelContextLength),
+		MaxOutputTokens: maxTokens,
 	}
 
 	if opts.Search {
@@ -216,7 +218,7 @@ func (o *Client) buildGenerateContentConfig(opts *domain.ChatOptions) (*genai.Ge
 					RetrievalConfig: &genai.RetrievalConfig{LanguageCode: loc},
 				}
 			} else {
-				return nil, fmt.Errorf(errInvalidLocationFormat, loc)
+				return nil, fmt.Errorf(i18n.T(errInvalidLocationFormatKey), loc)
 			}
 		}
 	}
@@ -228,7 +230,7 @@ func (o *Client) buildGenerateContentConfig(opts *domain.ChatOptions) (*genai.Ge
 	return cfg, nil
 }
 
-// buildModelNameFull adds the "models/" prefix for API calls
+// buildModelNameFull adds the "models/" prefix when the name lacks it.
 func (o *Client) buildModelNameFull(modelName string) string {
 	if strings.HasPrefix(modelName, modelPrefix) {
 		return modelName
@@ -251,9 +253,9 @@ func normalizeLocation(location string) string {
 	return strings.Replace(location, langCodeSeparator, langCodeNormalizedSep, 1)
 }
 
-// isValidLanguageCode reports whether the input is an ISO 639-1 language code
-// optionally followed by an ISO 3166-1 country code. Underscores are
-// normalized to hyphens before validation.
+// isValidLanguageCode reports whether code is an ISO 639-1 language code with
+// an optional ISO 3166-1 country code. It replaces the first underscore with a
+// hyphen and ignores case.
 func isValidLanguageCode(code string) bool {
 	normalized := strings.Replace(code, langCodeSeparator, langCodeNormalizedSep, 1)
 	parts := strings.Split(normalized, langCodeNormalizedSep)
@@ -268,7 +270,6 @@ func isValidLanguageCode(code string) bool {
 	}
 }
 
-// isTTSModel checks if the model is a text-to-speech model
 func (o *Client) isTTSModel(modelName string) bool {
 	lowerModel := strings.ToLower(modelName)
 	return strings.Contains(lowerModel, modelTypeTTS) ||
@@ -276,17 +277,16 @@ func (o *Client) isTTSModel(modelName string) bool {
 		strings.Contains(lowerModel, modelTypeTextToSpeech)
 }
 
-// extractTextForTTS extracts text content from chat messages for TTS generation
+// extractTextForTTS returns the content of the last non-empty user message.
 func (o *Client) extractTextForTTS(msgs []*chat.ChatCompletionMessage) (string, error) {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == chat.ChatMessageRoleUser && msgs[i].Content != "" {
-			return msgs[i].Content, nil
+	for _, msg := range slices.Backward(msgs) {
+		if msg.Role == chat.ChatMessageRoleUser && msg.Content != "" {
+			return msg.Content, nil
 		}
 	}
-	return "", fmt.Errorf("no text content found for TTS generation")
+	return "", errors.New(i18n.T("gemini_no_text_for_tts"))
 }
 
-// createGenaiClient creates a new GenAI client for TTS operations
 func (o *Client) createGenaiClient(ctx context.Context) (*genai.Client, error) {
 	return genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  o.ApiKey.Value,
@@ -294,17 +294,15 @@ func (o *Client) createGenaiClient(ctx context.Context) (*genai.Client, error) {
 	})
 }
 
-// generateTTSAudio handles TTS audio generation using the new SDK
 func (o *Client) generateTTSAudio(ctx context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions) (ret string, err error) {
 	textToSpeak, err := o.extractTextForTTS(msgs)
 	if err != nil {
 		return "", err
 	}
 
-	// Validate voice name before making API call
 	if opts.Voice != "" && !IsValidGeminiVoice(opts.Voice) {
 		validVoices := GetGeminiVoiceNames()
-		return "", fmt.Errorf("invalid voice '%s'. Valid voices are: %v", opts.Voice, validVoices)
+		return "", fmt.Errorf(i18n.T("gemini_invalid_voice"), opts.Voice, validVoices)
 	}
 
 	client, err := o.createGenaiClient(ctx)
@@ -315,18 +313,14 @@ func (o *Client) generateTTSAudio(ctx context.Context, msgs []*chat.ChatCompleti
 	return o.performTTSGeneration(ctx, client, textToSpeak, opts)
 }
 
-// performTTSGeneration performs the actual TTS generation and audio processing
 func (o *Client) performTTSGeneration(ctx context.Context, client *genai.Client, textToSpeak string, opts *domain.ChatOptions) (string, error) {
-
-	// Create content for TTS
 	contents := []*genai.Content{{
 		Parts: []*genai.Part{{Text: textToSpeak}},
 	}}
 
-	// Configure for TTS generation
 	voiceName := opts.Voice
 	if voiceName == "" {
-		voiceName = "Kore" // Default voice if none specified
+		voiceName = "Kore"
 	}
 
 	config := &genai.GenerateContentConfig{
@@ -340,208 +334,84 @@ func (o *Client) performTTSGeneration(ctx context.Context, client *genai.Client,
 		},
 	}
 
-	// Generate TTS content
 	response, err := client.Models.GenerateContent(ctx, o.buildModelNameFull(opts.Model), contents, config)
 	if err != nil {
-		return "", fmt.Errorf("TTS generation failed: %w", err)
+		return "", fmt.Errorf(i18n.T("gemini_tts_failed"), err)
 	}
 
-	// Extract and process audio data
 	if len(response.Candidates) > 0 && response.Candidates[0].Content != nil && len(response.Candidates[0].Content.Parts) > 0 {
 		part := response.Candidates[0].Content.Parts[0]
 		if part.InlineData != nil && len(part.InlineData.Data) > 0 {
-			// Validate audio data format and size
 			if part.InlineData.MIMEType != "" && !strings.HasPrefix(part.InlineData.MIMEType, "audio/") {
-				return "", fmt.Errorf("unexpected data type: %s, expected audio data", part.InlineData.MIMEType)
+				return "", fmt.Errorf(i18n.T("gemini_unexpected_data_type"), part.InlineData.MIMEType)
 			}
 
 			pcmData := part.InlineData.Data
 			if len(pcmData) < MinAudioDataSize {
-				return "", fmt.Errorf("audio data too small: %d bytes, minimum required: %d", len(pcmData), MinAudioDataSize)
+				return "", fmt.Errorf(i18n.T("gemini_audio_data_too_small"), len(pcmData), MinAudioDataSize)
 			}
 
-			// Generate WAV file with proper headers and return the binary data
 			wavData, err := o.generateWAVFile(pcmData)
 			if err != nil {
-				return "", fmt.Errorf("failed to generate WAV file: %w", err)
+				return "", fmt.Errorf(i18n.T("gemini_wav_generation_failed"), err)
 			}
 
-			// Validate generated WAV data
 			if len(wavData) < WAVHeaderSize {
-				return "", fmt.Errorf("generated WAV data is invalid: %d bytes, minimum required: %d", len(wavData), WAVHeaderSize)
+				return "", fmt.Errorf(i18n.T("gemini_wav_data_invalid"), len(wavData), WAVHeaderSize)
 			}
 
-			// Store the binary audio data in a special format that the CLI can detect
-			// Use more efficient string concatenation
+			// The CLI detects this prefix and writes the bytes after it to the output file.
 			return AudioDataPrefix + string(wavData), nil
 		}
 	}
 
-	return "", fmt.Errorf("no audio data received from TTS model")
+	return "", errors.New(i18n.T("gemini_no_audio_data"))
 }
 
-// generateWAVFile creates WAV data from PCM data with proper headers
+// generateWAVFile adds a WAV header to pcmData.
 func (o *Client) generateWAVFile(pcmData []byte) ([]byte, error) {
-	// Validate input size to prevent potential security issues
 	if len(pcmData) == 0 {
-		return nil, fmt.Errorf("empty PCM data provided")
+		return nil, errors.New(i18n.T("gemini_empty_pcm_data"))
 	}
 	if len(pcmData) > MaxAudioDataSize {
-		return nil, fmt.Errorf("PCM data too large: %d bytes, maximum allowed: %d", len(pcmData), MaxAudioDataSize)
+		return nil, fmt.Errorf(i18n.T("gemini_pcm_data_too_large"), len(pcmData), MaxAudioDataSize)
 	}
 
-	// WAV file parameters (Gemini TTS default specs)
+	// Gemini TTS returns 16-bit mono PCM at 24 kHz.
 	channels := DefaultChannels
 	sampleRate := DefaultSampleRate
 	bitsPerSample := DefaultBitsPerSample
 
-	// Calculate required values
 	byteRate := sampleRate * channels * bitsPerSample / 8
 	blockAlign := channels * bitsPerSample / 8
 	dataLen := uint32(len(pcmData))
 	riffSize := RIFFHeaderSize + dataLen
 
-	// Pre-allocate buffer with known size for better performance
-	totalSize := int(riffSize + 8) // +8 for RIFF header
+	totalSize := int(riffSize + 8) // riffSize excludes the "RIFF" tag and the size field
 	buf := bytes.NewBuffer(make([]byte, 0, totalSize))
 
-	// RIFF header
 	buf.WriteString("RIFF")
 	binary.Write(buf, binary.LittleEndian, riffSize)
 	buf.WriteString("WAVE")
 
-	// fmt chunk
 	buf.WriteString("fmt ")
-	binary.Write(buf, binary.LittleEndian, uint32(16))            // subchunk1Size
-	binary.Write(buf, binary.LittleEndian, uint16(1))             // audioFormat = PCM
-	binary.Write(buf, binary.LittleEndian, uint16(channels))      // numChannels
-	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))    // sampleRate
-	binary.Write(buf, binary.LittleEndian, uint32(byteRate))      // byteRate
-	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))    // blockAlign
-	binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample)) // bitsPerSample
+	binary.Write(buf, binary.LittleEndian, uint32(16)) // fmt chunk size
+	binary.Write(buf, binary.LittleEndian, uint16(1))  // PCM
+	binary.Write(buf, binary.LittleEndian, uint16(channels))
+	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	binary.Write(buf, binary.LittleEndian, uint32(byteRate))
+	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))
+	binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample))
 
-	// data chunk
 	buf.WriteString("data")
 	binary.Write(buf, binary.LittleEndian, dataLen)
 
-	// Write PCM data to buffer
 	buf.Write(pcmData)
 
-	// Validate generated WAV data
 	result := buf.Bytes()
 	if len(result) < WAVHeaderSize {
-		return nil, fmt.Errorf("generated WAV data is invalid: %d bytes, minimum required: %d", len(result), WAVHeaderSize)
+		return nil, fmt.Errorf(i18n.T("gemini_wav_data_invalid"), len(result), WAVHeaderSize)
 	}
 
 	return result, nil
-}
-
-// convertMessages converts fabric chat messages to genai Content format
-func (o *Client) convertMessages(msgs []*chat.ChatCompletionMessage) []*genai.Content {
-	var contents []*genai.Content
-
-	for _, msg := range msgs {
-		content := &genai.Content{Parts: []*genai.Part{}}
-
-		switch msg.Role {
-		case chat.ChatMessageRoleAssistant:
-			content.Role = "model"
-		case chat.ChatMessageRoleUser:
-			content.Role = "user"
-		case chat.ChatMessageRoleSystem, chat.ChatMessageRoleDeveloper, chat.ChatMessageRoleFunction, chat.ChatMessageRoleTool:
-			// Gemini's API only accepts "user" and "model" roles.
-			// Map all other roles to "user" to preserve instruction context.
-			content.Role = "user"
-		default:
-			content.Role = "user"
-		}
-
-		if msg.Content != "" {
-			content.Parts = append(content.Parts, &genai.Part{Text: msg.Content})
-		}
-
-		// Handle multi-content messages (images, etc.)
-		for _, part := range msg.MultiContent {
-			switch part.Type {
-			case chat.ChatMessagePartTypeText:
-				content.Parts = append(content.Parts, &genai.Part{Text: part.Text})
-			case chat.ChatMessagePartTypeImageURL:
-				// TODO: Handle image URLs if needed
-				// This would require downloading and converting to inline data
-			}
-		}
-
-		contents = append(contents, content)
-	}
-
-	return contents
-}
-
-// extractTextFromResponse extracts text content from the response and appends
-// any web citations in a standardized format.
-func (o *Client) extractTextFromResponse(response *genai.GenerateContentResponse) string {
-	if response == nil {
-		return ""
-	}
-
-	text := o.extractTextParts(response)
-	citations := o.extractCitations(response)
-	if len(citations) > 0 {
-		return text + citationHeader + strings.Join(citations, citationSeparator)
-	}
-	return text
-}
-
-func (o *Client) extractTextParts(response *genai.GenerateContentResponse) string {
-	var builder strings.Builder
-	for _, candidate := range response.Candidates {
-		if candidate == nil || candidate.Content == nil {
-			continue
-		}
-		for _, part := range candidate.Content.Parts {
-			if part != nil && part.Text != "" {
-				builder.WriteString(part.Text)
-			}
-		}
-	}
-	return builder.String()
-}
-
-func (o *Client) extractCitations(response *genai.GenerateContentResponse) []string {
-	if response == nil || len(response.Candidates) == 0 {
-		return nil
-	}
-
-	citationMap := make(map[string]bool)
-	var citations []string
-	for _, candidate := range response.Candidates {
-		if candidate == nil || candidate.GroundingMetadata == nil {
-			continue
-		}
-		chunks := candidate.GroundingMetadata.GroundingChunks
-		if len(chunks) == 0 {
-			continue
-		}
-		for _, chunk := range chunks {
-			if chunk == nil || chunk.Web == nil {
-				continue
-			}
-			uri := chunk.Web.URI
-			title := chunk.Web.Title
-			if uri == "" || title == "" {
-				continue
-			}
-			var keyBuilder strings.Builder
-			keyBuilder.WriteString(uri)
-			keyBuilder.WriteByte('|')
-			keyBuilder.WriteString(title)
-			key := keyBuilder.String()
-			if !citationMap[key] {
-				citationMap[key] = true
-				citationText := fmt.Sprintf(citationFormat, title, uri)
-				citations = append(citations, citationText)
-			}
-		}
-	}
-	return citations
 }

@@ -1,7 +1,15 @@
 package azure
 
 import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/danielmiessler/fabric/internal/plugins/ai/azurecommon"
+	openaiapi "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 // Test generated using Keploy
@@ -27,7 +35,7 @@ func TestClientConfigure(t *testing.T) {
 	client.ApiDeployments.Value = "deployment1,deployment2"
 	client.ApiKey.Value = "test-api-key"
 	client.ApiBaseURL.Value = "https://example.com"
-	client.ApiVersion.Value = "2021-01-01"
+	client.ApiVersion.Value = "2025-04-01-preview"
 
 	err := client.configure()
 	if err != nil {
@@ -48,8 +56,23 @@ func TestClientConfigure(t *testing.T) {
 		t.Errorf("Expected ApiClient to be initialized, got nil")
 	}
 
-	if client.ApiVersion.Value != "2021-01-01" {
-		t.Errorf("Expected API version to be '2021-01-01', got %s", client.ApiVersion.Value)
+	if client.ApiVersion.Value != "2025-04-01-preview" {
+		t.Errorf("Expected API version to be '2025-04-01-preview', got %s", client.ApiVersion.Value)
+	}
+}
+
+func TestClientConfigureDefaultAPIVersion(t *testing.T) {
+	client := NewClient()
+	client.ApiDeployments.Value = "deployment1"
+	client.ApiKey.Value = "test-api-key"
+	client.ApiBaseURL.Value = "https://example.com"
+
+	if err := client.configure(); err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if client.ApiVersion.Value != azurecommon.DefaultAPIVersion {
+		t.Errorf("Expected API version to default to %s, got %s", azurecommon.DefaultAPIVersion, client.ApiVersion.Value)
 	}
 }
 
@@ -58,7 +81,7 @@ func TestListModels(t *testing.T) {
 	client := NewClient()
 	client.apiDeployments = []string{"deployment1", "deployment2"}
 
-	models, err := client.ListModels()
+	models, err := client.ListModels(context.Background())
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -71,5 +94,70 @@ func TestListModels(t *testing.T) {
 		if models[i] != model {
 			t.Errorf("Expected model %s, got %s", model, models[i])
 		}
+	}
+}
+
+func TestNeedsRawModeInheritsFromParent(t *testing.T) {
+	client := NewClient()
+
+	tests := []struct {
+		name     string
+		model    string
+		expected bool
+	}{
+		{"o1 model", "o1", true},
+		{"o1-preview", "o1-preview", true},
+		{"o3-mini", "o3-mini", true},
+		{"o4-mini", "o4-mini", true},
+		{"gpt-5", "gpt-5", true},
+		{"gpt-5-turbo", "gpt-5-turbo", true},
+		{"gpt-4o", "gpt-4o", false},
+		{"gpt-4", "gpt-4", false},
+		{"regular deployment", "my-deployment", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := client.NeedsRawMode(tt.model)
+			if result != tt.expected {
+				t.Errorf("NeedsRawMode(%q) = %v, want %v", tt.model, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigureRoutesChatToDeployment(t *testing.T) {
+	var path, apiVersion, apiKey string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, apiVersion, apiKey = r.URL.Path, r.URL.Query().Get("api-version"), r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[]}`)
+	}))
+	defer server.Close()
+
+	client := NewClient()
+	client.ApiDeployments.Value = "gpt-4o"
+	client.ApiKey.Value = "test-api-key"
+	client.ApiBaseURL.Value = server.URL
+	if err := client.configure(); err != nil {
+		t.Fatalf("configure() error = %v", err)
+	}
+
+	// openai-go v3 sends Azure credentials only over HTTPS. server.Client accepts the test certificate.
+	_, err := client.ApiClient.Chat.Completions.New(context.Background(), openaiapi.ChatCompletionNewParams{
+		Model:    "gpt-4o",
+		Messages: []openaiapi.ChatCompletionMessageParamUnion{openaiapi.UserMessage("Hello")},
+	}, option.WithHTTPClient(server.Client()))
+	if err != nil {
+		t.Fatalf("Chat.Completions.New() error = %v", err)
+	}
+	if path != "/openai/deployments/gpt-4o/chat/completions" {
+		t.Errorf("request path = %q, want /openai/deployments/gpt-4o/chat/completions", path)
+	}
+	if apiVersion != azurecommon.DefaultAPIVersion {
+		t.Errorf("api-version = %q, want %q", apiVersion, azurecommon.DefaultAPIVersion)
+	}
+	if apiKey != "test-api-key" {
+		t.Errorf("Api-Key header = %q, want test-api-key", apiKey)
 	}
 }

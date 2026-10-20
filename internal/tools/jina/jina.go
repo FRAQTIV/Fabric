@@ -1,12 +1,13 @@
 package jina
 
-// see https://jina.ai for more information
+// See https://jina.ai for the API documentation.
 
 import (
 	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/danielmiessler/fabric/internal/plugins"
 )
 
@@ -21,8 +22,8 @@ func NewClient() (ret *Client) {
 
 	ret = &Client{
 		PluginBase: &plugins.PluginBase{
-			Name:             label,
-			SetupDescription: "Jina AI Service - to grab a webpage as clean, LLM-friendly text",
+			Name:             i18n.T("jina_label"),
+			SetupDescription: i18n.T("jina_setup_description") + " " + i18n.T("optional_marker"),
 			EnvNamePrefix:    plugins.BuildEnvVariablePrefix(label),
 		},
 	}
@@ -44,11 +45,10 @@ func (jc *Client) ScrapeQuestion(question string) (ret string, err error) {
 func (jc *Client) request(requestURL string) (ret string, err error) {
 	var req *http.Request
 	if req, err = http.NewRequest("GET", requestURL, nil); err != nil {
-		err = fmt.Errorf("error creating request: %w", err)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("jina_error_creating_request"), err))
 		return
 	}
 
-	// if api keys exist, set the header
 	if jc.ApiKey.Value != "" {
 		req.Header.Set("Authorization", "Bearer "+jc.ApiKey.Value)
 	}
@@ -56,14 +56,14 @@ func (jc *Client) request(requestURL string) (ret string, err error) {
 	client := &http.Client{}
 	var resp *http.Response
 	if resp, err = client.Do(req); err != nil {
-		err = fmt.Errorf("error sending request: %w", err)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("jina_error_sending_request"), err))
 		return
 	}
 	defer resp.Body.Close()
 
 	var body []byte
 	if body, err = io.ReadAll(resp.Body); err != nil {
-		err = fmt.Errorf("error reading response body: %w", err)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("jina_error_reading_response_body"), err))
 		return
 	}
 	ret = string(body)

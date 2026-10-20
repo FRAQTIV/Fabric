@@ -1,9 +1,24 @@
 
 # Fabric Extensions: Complete Guide
 
+## Important: Extensions Only Work in Patterns
+
+**Extensions are ONLY processed when used within pattern files, not via direct piping to fabric.**
+
+```bash
+# ❌ This DOES NOT WORK - extensions are not processed in stdin
+echo "{{ext:word-generator:generate:3}}" | fabric
+
+# ✅ This WORKS - extensions are processed within patterns
+fabric -p my-pattern-with-extensions.md
+```
+
+When you pipe directly to fabric without a pattern, the input goes straight to the LLM without template processing. Extensions are only evaluated during pattern template processing via `ApplyTemplate()`.
+
 ## Understanding Extension Architecture
 
 ### Registry Structure
+
 The extension registry is stored at `~/.config/fabric/extensions/extensions.yaml` and tracks registered extensions:
 
 ```yaml
@@ -17,6 +32,7 @@ extensions:
 The registry maintains security through hash verification of both configs and executables.
 
 ### Extension Configuration
+
 Each extension requires a YAML configuration file with the following structure:
 
 ```yaml
@@ -42,8 +58,10 @@ config:                      # Output configuration
 ```
 
 ### Directory Structure
+
 Recommended organization:
-```
+
+```text
 ~/.config/fabric/extensions/
 ├── bin/           # Extension executables
 ├── configs/       # Extension YAML configs
@@ -51,9 +69,11 @@ Recommended organization:
 ```
 
 ## Example 1: Python Wrapper (Word Generator)
+
 A simple example wrapping a Python script.
 
 ### 1. Position Files
+
 ```bash
 # Create directories
 mkdir -p ~/.config/fabric/extensions/{bin,configs}
@@ -64,7 +84,9 @@ chmod +x ~/.config/fabric/extensions/bin/word-generator.py
 ```
 
 ### 2. Configure
+
 Create `~/.config/fabric/extensions/configs/word-generator.yaml`:
+
 ```yaml
 name: word-generator
 executable: "~/.config/fabric/extensions/bin/word-generator.py"
@@ -83,22 +105,26 @@ config:
 ```
 
 ### 3. Register & Run
+
 ```bash
 # Register
 fabric --addextension ~/.config/fabric/extensions/configs/word-generator.yaml
 
-# Run (generate 3 random words)
-echo "{{ext:word-generator:generate:3}}" | fabric
+# Extensions must be used within patterns (see "Extensions in patterns" section below)
+# Direct piping to fabric will NOT process extension syntax
 ```
 
 ## Example 2: Direct Executable (SQLite3)
+
 Using a system executable directly.
 
 copy the memories to your home directory
  ~/memories.db
 
 ### 1. Configure
+
 Create `~/.config/fabric/extensions/configs/memory-query.yaml`:
+
 ```yaml
 name: memory-query
 executable: "/usr/bin/sqlite3"
@@ -113,7 +139,10 @@ operations:
   value:
     cmd_template: "{{executable}} -json ~/memories.db \"select * from memories where type= 'value'\""
   byid:
-    cmd_template: "{{executable}} -json ~/memories.db \"select * from memories where uid= {{value}}\""
+    # Do not put {{value}} directly in double quotes. There, the shell escape
+    # quotes are literal, and $(cmd) in the value runs. printf %d makes the
+    # value an integer in its own command.
+    cmd_template: "{{executable}} -json ~/memories.db \"select * from memories where uid= $(printf %d {{value}})\""
   all:
     cmd_template: "{{executable}} -json ~/memories.db \"select * from memories\""
 
@@ -123,19 +152,19 @@ config:
 ```
 
 ### 2. Register & Run
+
 ```bash
 # Register
 fabric --addextension ~/.config/fabric/extensions/configs/memory-query.yaml
 
-# Run queries
-echo  "{{ext:memory-query:all}}" | fabric
-echo  "{{ext:memory-query:byid:3}}" | fabric
+# Extensions must be used within patterns (see "Extensions in patterns" section below)
+# Direct piping to fabric will NOT process extension syntax
 ```
-
 
 ## Extension Management Commands
 
 ### Add Extension
+
 ```bash
 fabric --addextension ~/.config/fabric/extensions/configs/memory-query.yaml
 ```
@@ -143,25 +172,29 @@ fabric --addextension ~/.config/fabric/extensions/configs/memory-query.yaml
 Note : if the executable or config file changes, you must re-add the extension.
 This will recompute the hash for the extension.
 
-
 ### List Extensions
+
 ```bash
 fabric --listextensions
 ```
+
 Shows all registered extensions with their status and configuration details.
 
 ### Remove Extension
+
 ```bash
 fabric --rmextension <extension-name>
 ```
-Removes an extension from the registry.
 
+Removes an extension from the registry.
 
 ## Extensions in patterns
 
-```
-Create a pattern that use multiple extensions.
+**IMPORTANT**: Extensions are ONLY processed when used within pattern files, not via direct piping to fabric.
 
+Create a pattern file (e.g., `test_pattern.md`):
+
+```markdown
 These are my favorite
 {{ext:word-generator:generate:3}}
 
@@ -171,8 +204,30 @@ These are my least favorite
 what does this say about me?
 ```
 
+Run the pattern:
+
 ```bash
-./fabric -p ./plugins/template/Examples/test_pattern.md
+fabric -p ./internal/plugins/template/Examples/test_pattern.md
+```
+
+## Passing {{input}} to extensions inside patterns
+
+```text
+Create a pattern called ai_summarize that uses extensions (see openai.yaml and copy for claude)
+
+Summarize the responses from both AI models:
+
+OpenAI Response:
+{{ext:openai:chat:{{input}}}}
+
+Claude Response:
+{{ext:claude:chat:{{input}}}}
+
+```
+
+```bash
+echo "What is Artificial Intelligence" | ../fabric-fix -p ai_summarize
+
 ```
 
 ## Security Considerations
@@ -197,6 +252,7 @@ what does this say about me?
 ## Troubleshooting
 
 ### Common Issues
+
 1. **Registration Failures**
    - Verify file permissions
    - Check executable paths
@@ -214,10 +270,10 @@ what does this say about me?
    - Monitor disk space for file operations
 
 ### Debug Tips
+
 1. Enable verbose logging when available
 2. Check system logs for execution errors
 3. Verify extension dependencies
 4. Test extensions with minimal configurations first
-
 
 Would you like me to expand on any particular section or add more examples?

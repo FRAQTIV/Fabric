@@ -40,7 +40,7 @@ Nuclei templates are the cornerstone of the Nuclei scanning engine. Nuclei templ
 Review details on matchers for Nuclei
 Matchers allow different type of flexible comparisons on protocol responses. They are what makes nuclei so powerful, checks are very simple to write and multiple checks can be added as per need for very effective scanning.
 
-​
+
 ### Types
 Multiple matchers can be specified in a request. There are basically 7 types of matchers:
 ```
@@ -115,13 +115,13 @@ all_headers	    All all headers	          len(all_headers)
 body	          Body as string	          len(body)
 header_name	    header name with - converted to _	len(user_agent)
 raw             Headers + Response	      len(raw)
-​
+
 ### Conditions
 Multiple words and regexes can be specified in a single matcher and can be configured with different conditions like AND and OR.
 
 AND - Using AND conditions allows matching of all the words from the list of words for the matcher. Only then will the request be marked as successful when all the words have been matched.
 OR - Using OR conditions allows matching of a single word from the list of matcher. The request will be marked as successful when even one of the word is matched for the matcher.
-​
+
 Matched Parts
 Multiple parts of the response can also be matched for the request, default matched part is body if not defined.
 
@@ -142,7 +142,7 @@ matchers:
 ```
 Similarly, matchers can be written to match anything that you want to find in the response body allowing unlimited creativity and extensibility.
 
-​
+
 ### Negative Matchers
 All types of matchers also support negative conditions, mostly useful when you look for a match with an exclusions. This can be used by adding negative: true in the matchers block.
 
@@ -156,7 +156,7 @@ matchers:
     part: header
     negative: true
 ```
-​
+
 ### Multiple Matchers
 Multiple matchers can be used in a single template to fingerprint multiple conditions with a single request.
 
@@ -185,7 +185,7 @@ matchers:
     condition: or
     part: header
 ```
-​
+
 ### Matchers Condition
 While using multiple matchers the default condition is to follow OR operation in between all the matchers, AND operation can be used to make sure return the result if all matchers returns true.
 
@@ -210,7 +210,7 @@ While using multiple matchers the default condition is to follow OR operation in
 Review details on extractors for Nuclei
 Extractors can be used to extract and display in results a match from the response returned by a module.
 
-​
+
 ### Types
 Multiple extractors can be specified in a request. As of now we support five type of extractors.
 ```
@@ -219,7 +219,7 @@ kval - Extract key: value/key=value formatted data from Response Header/Cookie
 json - Extract data from JSON based response in JQ like syntax.
 xpath - Extract xpath based data from HTML Response
 dsl - Extract data from the response based on a DSL expressions.
-​```
+```
 
 Regex Extractor
 Example extractor for HTTP Response body using regex:
@@ -230,7 +230,7 @@ extractors:
     part: body  # part of the response (header,body,all)
     regex:
       - \"(A3T[A-Z0-9]|AKIA|AGPA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\"  # regex to use for extraction.
-​```
+```
 Kval Extractor
 A kval extractor example to extract content-type header from HTTP Response.
 
@@ -242,7 +242,7 @@ extractors:
 ```
 Note that content-type has been replaced with content_type because kval extractor does not accept dash (-) as input and must be substituted with underscore (_).
 
-​
+
 JSON Extractor
 A json extractor example to extract value of id object from JSON block.
 
@@ -255,7 +255,7 @@ A json extractor example to extract value of id object from JSON block.
 ```
 For more details about JQ - https://github.com/stedolan/jq
 
-​
+
 Xpath Extractor
 A xpath extractor example to extract value of href attribute from HTML response.
 
@@ -269,7 +269,7 @@ extractors:
 
 With a simple copy paste in browser, we can get the xpath value form any web page content.
 
-​
+
 DSL Extractor
 A dsl extractor example to extract the effective body length through the len helper function from HTTP Response.
 
@@ -279,7 +279,7 @@ extractors:
     dsl:
       - len(body) # dsl expression value to extract from response
 ```
-​
+
 Dynamic Extractor
 Extractors can be used to capture Dynamic Values on runtime while writing Multi-Request templates. CSRF Tokens, Session Headers, etc. can be extracted and used in requests. This feature is only available in RAW request format.
 
@@ -468,7 +468,7 @@ zlib(input string) string	Compresses the input using Zlib	base64(zlib(\"Hello\")
 zlib_decode(input string) string	Decompresses the input using Zlib	zlib_decode(hex_decode(\"789cf248cdc9c907040000ffff058c01f5\"))	Hello
 resolve(host string, format string) string	Resolves a host using a dns type that you define	resolve(\"localhost\",4)	127.0.0.1
 ip_format(ip string, format string) string	It takes an input ip and converts it to another format according to this legend, the second parameter indicates the conversion index and must be between 1 and 11	ip_format(\"127.0.0.1\", 3)	0177.0.0.01
-​
+
 Deserialization helper functions
 Nuclei allows payload generation for a few common gadget from ysoserial.
 
@@ -498,7 +498,7 @@ Deserialization helper function example:
 
 ```
 {{generate_java_gadget(\"commons-collections3.1\", \"wget http://{{interactsh-url}}\", \"base64\")}}
-​```
+```
 JSON helper functions
 Nuclei allows manipulate JSON strings in different ways, here is a list of its functions:
 
@@ -619,7 +619,7 @@ ptr
 mx
 soa
 caa
-​```
+```
 
 
 
@@ -627,7 +627,7 @@ caa
 Review details on pre-processors for Nuclei
 Certain pre-processors can be specified globally anywhere in the template that run as soon as the template is loaded to achieve things like random ids generated for each template run.
 
-​```
+```
 {{randstr}}
 ```
 Generates a random ID for a template on each nuclei run. This can be used anywhere in the template and will always contain the same value. randstr can be suffixed by a number, and new random ids will be created for those names too. Ex. {{randstr_1}} which will remain same across the template.
@@ -654,7 +654,7 @@ OOB Testing
 Understanding OOB testing with Nuclei Templates
 Since release of Nuclei v2.3.6, Nuclei supports using the interactsh API to achieve OOB based vulnerability scanning with automatic Request correlation built in. It’s as easy as writing {{interactsh-url}} anywhere in the request, and adding a matcher for interact_protocol. Nuclei will handle correlation of the interaction to the template & the request it was generated from allowing effortless OOB scanning.
 
-​
+
 Interactsh Placeholder
 
 {{interactsh-url}} placeholder is supported in http and network requests.
@@ -667,7 +667,7 @@ An example of nuclei request with {{interactsh-url}} placeholders is provided be
         GET /plugins/servlet/oauth/users/icon-uri?consumerUri=https://{{interactsh-url}} HTTP/1.1
         Host: {{Hostname}}
 ```
-​
+
 Interactsh Matchers
 Interactsh interactions can be used with word, regex or dsl matcher/extractor using following parts.
 
@@ -732,7 +732,7 @@ HTTP Requests start with a request block which specifies the start of the reques
 ```
 # Start the requests for the template right here
 http:
-​```
+```
 
 Method
 Request method can be GET, POST, PUT, DELETE, etc. depending on the needs.
@@ -806,7 +806,7 @@ path: \"{{BaseURL}}/.git/config\"
 # path will get replaced to the following: https://abc.com/.git/config
 Multiple paths can also be specified in one request which will be requested for the target.
 
-​
+
 ### Headers
 
 Headers can also be specified to be sent along with the requests. Headers are placed in form of key/value pairs. An example header configuration looks like this:
@@ -819,21 +819,21 @@ headers:
   # Custom request origin
   Origin: https://google.com
 ```
-​
+
 ### Body
 Body specifies a body to be sent along with the request. For instance:
 ```
 # Body is a string sent along with the request
 body: \"admin=test\"
-​```​
+```
 
 Session
 To maintain a cookie-based browser-like session between multiple requests, cookies are reused by default. This is beneficial when you want to maintain a session between a series of requests to complete the exploit chain or to perform authenticated scans. If you need to disable this behavior, you can use the disable-cookie field.
 
-```​
+```
 # disable-cookie accepts boolean input and false as default
 disable-cookie: true
-```​
+```
 
 ### Request Condition
 Request condition allows checking for the condition between multiple requests for writing complex checks and exploits involving various HTTP requests to complete the exploit chain.
@@ -853,7 +853,7 @@ For example with status_code_1, status_code_3, andbody_2:
           - \"status_code_1 == 404 && status_code_2 == 200 && contains((body_2), \'secret_string\')\"
 ```
 Request conditions might require more memory as all attributes of previous responses are kept in memory
-​
+
 Example HTTP Template
 The final template file for the .git/config file mentioned above is as follows:
 
@@ -911,13 +911,13 @@ To make a request to the URL specified as input without any additional tampering
 ```
 
 # HTTP Payloads
-​
+
 Overview
 Nuclei engine supports payloads module that allow to run various type of payloads in multiple format, It’s possible to define placeholders with simple keywords (or using brackets {{helper_function(variable)}} in case mutator functions are needed), and perform batteringram, pitchfork and clusterbomb attacks. The wordlist for these attacks needs to be defined during the request definition under the Payload field, with a name matching the keyword, Nuclei supports both file based and in template wordlist support and Finally all DSL functionalities are fully available and supported, and can be used to manipulate the final values.
 
 Payloads are defined using variable name and can be referenced in the request in between {{ }} marker.
 
-​
+
 Examples
 An example of the using payloads with local wordlist:
 
@@ -943,23 +943,23 @@ Note: be careful while selecting attack type, as unexpected input will break the
 
 For example, if you used clusterbomb or pitchfork as attack type and defined only one variable in the payload section, template will fail to compile, as clusterbomb or pitchfork expect more than one variable to use in the template.
 
-​
+
 ### Attack modes:
 Nuclei engine supports multiple attack types, including batteringram as default type which generally used to fuzz single parameter, clusterbomb and pitchfork for fuzzing multiple parameters which works same as classical burp intruder.
 
 Type	batteringram	pitchfork	clusterbomb
 Support	✔	✔	✔
-​
+
 batteringram
 The battering ram attack type places the same payload value in all positions. It uses only one payload set. It loops through the payload set and replaces all positions with the payload value.
 
-​
+
 pitchfork
 The pitchfork attack type uses one payload set for each position. It places the first payload in the first position, the second payload in the second position, and so on.
 
 It then loops through all payload sets at the same time. The first request uses the first payload from each payload set, the second request uses the second payload from each payload set, and so on.
 
-​
+
 clusterbomb
 The cluster bomb attack tries all different combinations of payloads. It still puts the first payload in the first position, and the second payload in the second position. But when it loops through the payload sets, it tries all combinations.
 
@@ -968,7 +968,7 @@ It then loops through all payload sets at the same time. The first request uses 
 This attack type is useful for a brute-force attack. Load a list of commonly used usernames in the first payload set, and a list of commonly used passwords in the second payload set. The cluster bomb attack will then try all combinations.
 
 
-​
+
 Attack Mode Example
 An example of the using clusterbomb attack to fuzz.
 
@@ -988,7 +988,7 @@ http:
 
 # HTTP Payloads Examples
 Review some HTTP payload examples for Nuclei
-​
+
 ### HTTP Intruder fuzzing
 This template makes a defined POST request in RAW format along with in template defined payloads running clusterbomb intruder and checking for string match against response.
 
@@ -1031,7 +1031,7 @@ http:
         words:
           - \"Test is test matcher text\"
 ```
-​
+
 ### Fuzzing multiple requests
 This template makes a defined POST request in RAW format along with wordlist based payloads running clusterbomb intruder and checking for string match against response.
 
@@ -1077,7 +1077,7 @@ http:
         words:
           - \"Test is test matcher text\"
 ```
-​
+
 ### Authenticated fuzzing
 This template makes a subsequent HTTP requests with defined requests maintaining sessions between each request and checking for string match against response.
 
@@ -1108,7 +1108,7 @@ http:
         words:
           - \"Test is test matcher text\"
 ```
-​
+
 Dynamic variable support
 
 This template makes a subsequent HTTP requests maintaining sessions between each request, dynamically extracting data from one request and reusing them into another request using variable name and checking for string match against response.
@@ -1240,7 +1240,7 @@ http:
 
 ### Connection Tampering
 Learn more about using HTTP pipelining and connection pooling with Nuclei
-​
+
 Pipelining
 HTTP Pipelining support has been added which allows multiple HTTP requests to be sent on the same connection inspired from http-desync-attacks-request-smuggling-reborn.
 
@@ -1286,7 +1286,7 @@ http:
         part: header
         status:
           - 200
-​```
+```
 ### Connection pooling
 While the earlier versions of nuclei did not do connection pooling, users can now configure templates to either use HTTP connection pooling or not. This allows for faster scanning based on requirement.
 
@@ -1330,7 +1330,7 @@ http:
 
 ## Request Tampering
 Learn about request tampering in HTTP with Nuclei
-​
+
 ### Requests Annotation
 Request inline annotations allow performing per request properties/behavior override. They are very similar to python/java class annotations and must be put on the request just before the RFC line. Currently, only the following overrides are supported:
 
@@ -1412,7 +1412,7 @@ Network Requests start with a network block which specifies the start of the req
 
 # Start the requests for the template right here
 tcp:
-​
+
 Inputs
 First thing in the request is inputs. Inputs are the data that will be sent to the server, and optionally any data to read from the server.
 
@@ -1461,7 +1461,7 @@ matchers:
 ```
 Multiple steps can be chained together in sequence to do network reading / writing.
 
-​
+
 Host
 The next part of the requests is the host to connect to. Dynamic variables can be placed in the path to modify its value on runtime. Variables start with {{ and end with }} and are case-sensitive.
 
@@ -1478,7 +1478,7 @@ host:
   - \"tls://{{Hostname}}\"
 If a port is specified in the host, the user supplied port is ignored and the template port takes precedence.
 
-​
+
 Port
 Starting from Nuclei v2.9.15, a new field called port has been introduced in network templates. This field allows users to specify the port separately instead of including it in the host field.
 
@@ -1517,7 +1517,7 @@ exclude-ports: 80,443
 ```
 When exclude-ports is used, the default reserved ports list will be overwritten. This means that if you want to run a network template on port 80, you will have to explicitly specify it in the port field.
 
-​
+
 # Matchers / Extractor Parts
 Valid part values supported by Network protocol for Matchers / Extractor are:
 
@@ -1525,7 +1525,7 @@ Value	Description
 request	Network Request
 data	Final Data Read From Network Socket
 raw / body / all	All Data received from Socket
-​
+
 ### Example Network Template
 The final example template file for a hex encoded input to detect MongoDB running on servers with working matchers is provided below.
 
@@ -1553,7 +1553,7 @@ tcp:
 ```
 
 Request Execution Orchestration
-Flow is a powerful Nuclei feature that provides enhanced orchestration capabilities for executing requests. The simplicity of conditional execution is just the beginning. With ﻿flow, you can:
+Flow is a powerful Nuclei feature that provides enhanced orchestration capabilities for executing requests. The simplicity of conditional execution is just the beginning. With flow, you can:
 
 Iterate over a list of values and execute a request for each one
 Extract values from a request, iterate over them, and perform another request for each
@@ -1566,7 +1566,7 @@ Think of request execution orchestration as a bridge between JavaScript and Nucl
 
 Practical Example: Vhost Enumeration
 
-To better illustrate the power of ﻿flow, let’s consider developing a template for vhost (virtual host) enumeration. This set of tasks typically requires writing a new tool from scratch. Here are the steps we need to follow:
+To better illustrate the power of flow, let’s consider developing a template for vhost (virtual host) enumeration. This set of tasks typically requires writing a new tool from scratch. Here are the steps we need to follow:
 
 Retrieve the SSL certificate for the provided IP (using tlsx)
 Extract subject_cn (CN) from the certificate
@@ -1582,7 +1582,7 @@ for (let vhost of iterate(template[\"ssl_domains\"])) {
     http();
 }
 ```
-In this code, we’ve introduced 5 extra lines of JavaScript. This allows the template to perform vhost enumeration. The best part? You can run this at scale with all features of Nuclei, using supported inputs like ﻿ASN, ﻿CIDR, ﻿URL.
+In this code, we’ve introduced 5 extra lines of JavaScript. This allows the template to perform vhost enumeration. The best part? You can run this at scale with all features of Nuclei, using supported inputs like ASN, CIDR, URL.
 
 Let’s break down the JavaScript code:
 
@@ -1631,11 +1631,11 @@ http:
       - type: dsl
         dsl:
           - \'\"VHOST: \" + vhost + \", SC: \" + status_code + \", CL: \" + content_length\'
-​```
+```
 JS Bindings
 This section contains a brief description of all nuclei JS bindings and their usage.
 
-​
+
 Protocol Execution Function
 In nuclei, any listed protocol can be invoked or executed in JavaScript using the protocol_name() format. For example, you can use http(), dns(), ssl(), etc.
 
@@ -1647,7 +1647,7 @@ For more advanced scenarios where multiple requests of a single protocol need to
 
 This flexibility in using either index numbers or ID strings to call specific protocol requests provides controls for tailored execution, allowing you to build more complex and efficient workflows. more complex use cases multiple requests of a single protocol can be executed by just specifying their index or id one after another (ex: dns(\"extract-vps\",\"1\"))
 
-​
+
 Iterate Helper Function :
 
 Iterate is a nuclei js helper function which can be used to iterate over any type of value like array, map, string, number while handling empty/nil values.
@@ -1661,7 +1661,7 @@ iterate(123,{\"a\":1,\"b\":2,\"c\":3})
 ```
 iterate([1,2,3,4,5], \" \")
 ```
-​
+
 Set Helper Function
 When iterating over a values/array or some other use case we might want to invoke a request with custom/given value and this can be achieved by using set() helper function. When invoked/called it adds given variable to template context (global variables) and that value is used during execution of request/protocol. the format of set() is set(\"variable_name\",value) ex: set(\"username\",\"admin\").
 
@@ -1674,7 +1674,7 @@ for (let vhost of myArray) {
 
 Note: In above example we used set(\"vhost\", vhost) which added vhost to template context (global variables) and then called http(1) which used this value in request.
 
-​
+
 Template Context
 
 A template context is nothing but a map/jsonl containing all this data along with internal/unexported data that is only available at runtime (ex: extracted values from previous requests, variables added using set() etc). This template context is available in javascript as template variable and can be used to access any data from it. ex: template[\"dns_cname\"], template[\"ssl_subject_cn\"] etc.
@@ -1689,13 +1689,13 @@ Lot of times we don’t known what all data is available in template context and
 
 ```
 log(template)
-​```
+```
 Log Helper Function
 It is a nuclei js alternative to console.log and this pretty prints map data in readable format
 
 Note: This should be used for debugging purposed only as this prints data to stdout
 
-​
+
 Dedupe
 Lot of times just having arrays/slices is not enough and we might need to remove duplicate variables . for example in earlier vhost enumeration we did not remove any duplicates as there is always a chance of duplicate values in ssl_subject_cn and ssl_subject_an and this can be achieved by using dedupe() object. This is nuclei js helper function to abstract away boilerplate code of removing duplicates from array/slice
 

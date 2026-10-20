@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/danielmiessler/fabric/internal/chat"
+	"github.com/danielmiessler/fabric/internal/chatfmt"
 
 	"github.com/danielmiessler/fabric/internal/domain"
 	"github.com/danielmiessler/fabric/internal/plugins"
@@ -22,48 +23,8 @@ func NewClient() *Client {
 	return &Client{PluginBase: &plugins.PluginBase{Name: "DryRun"}}
 }
 
-func (c *Client) ListModels() ([]string, error) {
+func (c *Client) ListModels(_ context.Context) ([]string, error) {
 	return []string{"dry-run-model"}, nil
-}
-
-func (c *Client) formatMultiContentMessage(msg *chat.ChatCompletionMessage) string {
-	var builder strings.Builder
-
-	if len(msg.MultiContent) > 0 {
-		builder.WriteString(fmt.Sprintf("%s:\n", msg.Role))
-		for _, part := range msg.MultiContent {
-			builder.WriteString(fmt.Sprintf("  - Type: %s\n", part.Type))
-			if part.Type == chat.ChatMessagePartTypeImageURL {
-				builder.WriteString(fmt.Sprintf("    Image URL: %s\n", part.ImageURL.URL))
-			} else {
-				builder.WriteString(fmt.Sprintf("    Text: %s\n", part.Text))
-			}
-		}
-		builder.WriteString("\n")
-	} else {
-		builder.WriteString(fmt.Sprintf("%s:\n%s\n\n", msg.Role, msg.Content))
-	}
-
-	return builder.String()
-}
-
-func (c *Client) formatMessages(msgs []*chat.ChatCompletionMessage) string {
-	var builder strings.Builder
-
-	for _, msg := range msgs {
-		switch msg.Role {
-		case chat.ChatMessageRoleSystem:
-			builder.WriteString(fmt.Sprintf("System:\n%s\n\n", msg.Content))
-		case chat.ChatMessageRoleAssistant:
-			builder.WriteString(c.formatMultiContentMessage(msg))
-		case chat.ChatMessageRoleUser:
-			builder.WriteString(c.formatMultiContentMessage(msg))
-		default:
-			builder.WriteString(fmt.Sprintf("%s:\n%s\n\n", msg.Role, msg.Content))
-		}
-	}
-
-	return builder.String()
 }
 
 func (c *Client) formatOptions(opts *domain.ChatOptions) string {
@@ -102,18 +63,35 @@ func (c *Client) formatOptions(opts *domain.ChatOptions) string {
 func (c *Client) constructRequest(msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions) string {
 	var builder strings.Builder
 	builder.WriteString("Dry run: Would send the following request:\n\n")
-	builder.WriteString(c.formatMessages(msgs))
+	builder.WriteString(chatfmt.FormatMessages(msgs))
 	builder.WriteString(c.formatOptions(opts))
 
 	return builder.String()
 }
 
-func (c *Client) SendStream(msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan string) error {
+func (c *Client) SendStream(_ context.Context, msgs []*chat.ChatCompletionMessage, opts *domain.ChatOptions, channel chan domain.StreamUpdate) error {
 	defer close(channel)
 	request := c.constructRequest(msgs, opts)
-	channel <- request
-	channel <- "\n"
-	channel <- DryRunResponse
+	channel <- domain.StreamUpdate{
+		Type:    domain.StreamTypeContent,
+		Content: request,
+	}
+	channel <- domain.StreamUpdate{
+		Type:    domain.StreamTypeContent,
+		Content: "\n",
+	}
+	channel <- domain.StreamUpdate{
+		Type:    domain.StreamTypeContent,
+		Content: DryRunResponse,
+	}
+	channel <- domain.StreamUpdate{
+		Type: domain.StreamTypeUsage,
+		Usage: &domain.UsageMetadata{
+			InputTokens:  100,
+			OutputTokens: 50,
+			TotalTokens:  150,
+		},
+	}
 	return nil
 }
 
@@ -128,9 +106,5 @@ func (c *Client) Setup() error {
 }
 
 func (c *Client) SetupFillEnvFileContent(_ *bytes.Buffer) {
-	// No environment variables needed for dry run
-}
-
-func (c *Client) NeedsRawMode(modelName string) bool {
-	return false
+	// The dry run vendor uses no environment variables.
 }

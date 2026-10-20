@@ -1,0 +1,366 @@
+basePath: /
+definitions:
+  domain.ThinkingLevel:
+    enum:
+    - "off"
+    - low
+    - medium
+    - high
+    type: string
+    x-enum-varnames:
+    - ThinkingOff
+    - ThinkingLow
+    - ThinkingMedium
+    - ThinkingHigh
+  domain.UsageMetadata:
+    properties:
+      input_tokens:
+        type: integer
+      output_tokens:
+        type: integer
+      total_tokens:
+        type: integer
+    type: object
+  fsdb.Pattern:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      pattern:
+        type: string
+    type: object
+  restapi.ChatRequest:
+    properties:
+      audioFormat:
+        type: string
+      audioOutput:
+        type: boolean
+      frequencyPenalty:
+        format: float64
+        type: number
+      imageBackground:
+        type: string
+      imageCompression:
+        type: integer
+      imageFile:
+        type: string
+      imageQuality:
+        type: string
+      imageSize:
+        type: string
+      language:
+        type: string
+      maxTokens:
+        type: integer
+      model:
+        type: string
+      modelContextLength:
+        type: integer
+      notification:
+        type: boolean
+      notificationCommand:
+        type: string
+      presencePenalty:
+        format: float64
+        type: number
+      prompts:
+        items:
+          $ref: '#/definitions/restapi.PromptRequest'
+        type: array
+      quiet:
+        type: boolean
+      raw:
+        type: boolean
+      search:
+        type: boolean
+      searchLocation:
+        type: string
+      seed:
+        type: integer
+      showMetadata:
+        type: boolean
+      suppressThink:
+        type: boolean
+      temperature:
+        format: float64
+        type: number
+      thinkEndTag:
+        type: string
+      thinkStartTag:
+        type: string
+      thinking:
+        $ref: '#/definitions/domain.ThinkingLevel'
+      topP:
+        format: float64
+        type: number
+      voice:
+        type: string
+    type: object
+  restapi.PatternApplyRequest:
+    properties:
+      input:
+        type: string
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  restapi.PromptRequest:
+    properties:
+      contextName:
+        type: string
+      model:
+        type: string
+      patternName:
+        type: string
+      sessionName:
+        description: Session name for multi-turn conversations
+        type: string
+      strategyName:
+        description: Optional strategy name
+        type: string
+      userInput:
+        type: string
+      variables:
+        additionalProperties:
+          type: string
+        description: Pattern variables
+        type: object
+      vendor:
+        type: string
+    type: object
+  restapi.StreamResponse:
+    properties:
+      content:
+        type: string
+      format:
+        description: '"markdown", "mermaid", "plain"'
+        type: string
+      type:
+        description: '"content", "usage", "error", "complete"'
+        type: string
+      usage:
+        $ref: '#/definitions/domain.UsageMetadata'
+    type: object
+  restapi.YouTubeRequest:
+    properties:
+      language:
+        description: 'Language code for transcript (default: "en")'
+        example: en
+        type: string
+      timestamps:
+        description: 'Include timestamps in the transcript (default: false)'
+        example: false
+        type: boolean
+      url:
+        description: YouTube video URL (required)
+        example: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+        type: string
+    required:
+    - url
+    type: object
+  restapi.YouTubeResponse:
+    properties:
+      description:
+        description: Video description from YouTube metadata
+        example: This is the video description from YouTube...
+        type: string
+      title:
+        description: Video title from YouTube metadata
+        example: Example Video Title
+        type: string
+      transcript:
+        description: The video transcript text
+        example: This is the video transcript...
+        type: string
+      videoId:
+        description: YouTube video ID
+        example: dQw4w9WgXcQ
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    name: Fabric Support
+    url: https://github.com/danielmiessler/fabric
+  description: REST API for Fabric AI augmentation framework. Provides endpoints for
+    chat completions, pattern management, contexts, sessions, and more.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Fabric REST API
+  version: "1.0"
+paths:
+  /chat:
+    post:
+      consumes:
+      - application/json
+      description: Stream AI responses using Server-Sent Events (SSE)
+      parameters:
+      - description: Chat request with prompts and options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/restapi.ChatRequest'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: Streaming response
+          schema:
+            $ref: '#/definitions/restapi.StreamResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Stream chat completions
+      tags:
+      - chat
+  /models/names:
+    get:
+      description: Get a list of all available AI models grouped by vendor
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Returns models (array) and vendors (map)
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: List all available models
+      tags:
+      - models
+  /patterns/{name}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a pattern by name
+      parameters:
+      - description: Pattern name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fsdb.Pattern'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get a pattern
+      tags:
+      - patterns
+  /patterns/{name}/apply:
+    post:
+      consumes:
+      - application/json
+      description: Apply a pattern with variable substitution
+      parameters:
+      - description: Pattern name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Pattern application request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/restapi.PatternApplyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fsdb.Pattern'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Apply pattern with variables
+      tags:
+      - patterns
+  /youtube/transcript:
+    post:
+      consumes:
+      - application/json
+      description: Retrieves the transcript of a YouTube video along with video metadata
+        (title and description)
+      parameters:
+      - description: YouTube transcript request with URL, language, and timestamp
+          options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/restapi.YouTubeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successful response with transcript and metadata
+          schema:
+            $ref: '#/definitions/restapi.YouTubeResponse'
+        "400":
+          description: Bad request - invalid URL or playlist URL provided
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error - failed to retrieve transcript or metadata
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get YouTube video transcript
+      tags:
+      - youtube
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: X-API-Key
+    type: apiKey
+swagger: "2.0"

@@ -1,46 +1,86 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { calculateTooltipPosition, formatPositionStyle, type TooltipPosition } from './positioning';
+
   export let text: string;
-  export let position: 'top' | 'bottom' | 'left' | 'right' = 'top';
+  // biome-ignore lint/style/useConst: Svelte props must use 'let' even when not reassigned
+  export let position: TooltipPosition = 'top';
 
   let tooltipVisible = false;
-  let tooltipElement: HTMLDivElement;
+  // eslint-disable-next-line no-unassigned-vars -- Assigned via bind:this in template
+  let triggerElement: HTMLDivElement;
+  let isBrowser = false;
+  // biome-ignore lint/correctness/noUnusedVariables: Used in template for aria-describedby and id
+  const tooltipId = `tooltip-${Math.random().toString(36).substring(2, 9)}`;
 
+  $: tooltipStyle = triggerElement && tooltipVisible
+    ? formatPositionStyle(calculateTooltipPosition(triggerElement.getBoundingClientRect(), position))
+    : '';
+
+  function updatePosition() {
+    if (triggerElement && tooltipVisible) {
+      tooltipStyle = formatPositionStyle(calculateTooltipPosition(triggerElement.getBoundingClientRect(), position));
+    }
+  }
+
+  // biome-ignore lint/correctness/noUnusedVariables: Used in template event handlers
   function showTooltip() {
     tooltipVisible = true;
   }
 
+  // biome-ignore lint/correctness/noUnusedVariables: Used in template event handlers
   function hideTooltip() {
     tooltipVisible = false;
   }
+
+  onMount(() => {
+    isBrowser = true;
+    return () => {
+      if (isBrowser) {
+        window.removeEventListener('scroll', updatePosition, true);
+        window.removeEventListener('resize', updatePosition);
+      }
+    };
+  });
+
+  // isBrowser stays false during SSR, where there is no window.
+  $: if (isBrowser && tooltipVisible) {
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+  } else if (isBrowser && !tooltipVisible) {
+    window.removeEventListener('scroll', updatePosition, true);
+    window.removeEventListener('resize', updatePosition);
+  }
 </script>
 
-<!-- svelte-ignore a11y-no-noninteractive-element-interactions a11y-mouse-events-have-key-events -->
 <div class="tooltip-container">
-  <div 
+  <div
+    bind:this={triggerElement}
     class="tooltip-trigger"
     on:mouseenter={showTooltip}
     on:mouseleave={hideTooltip}
     on:focusin={showTooltip}
     on:focusout={hideTooltip}
-    role="tooltip"
-    aria-label="Tooltip trigger"
+    aria-describedby={tooltipVisible ? tooltipId : undefined}
+    role="button"
+    tabindex="0"
   >
-    <slot />
+    <slot></slot>
   </div>
-  
+
   {#if tooltipVisible}
     <div
-      bind:this={tooltipElement}
-      class="tooltip absolute z-[9999] px-2 py-1 text-xs rounded bg-gray-900/90 text-white whitespace-nowrap shadow-lg backdrop-blur-sm"
+      id={tooltipId}
+      class="tooltip fixed z-[9999] px-2 py-1 text-xs rounded bg-gray-900/90 text-white whitespace-nowrap shadow-lg backdrop-blur-sm"
       class:top="{position === 'top'}"
       class:bottom="{position === 'bottom'}"
       class:left="{position === 'left'}"
       class:right="{position === 'right'}"
+      style={tooltipStyle}
       role="tooltip"
-      aria-label={text}
     >
       {text}
-      <div class="tooltip-arrow" role="presentation" />
+      <div class="tooltip-arrow" role="presentation"></div>
     </div>
   {/if}
 </div>
@@ -57,32 +97,24 @@
 
   .tooltip {
     pointer-events: none;
-    transition: all 150ms ease-in-out;
+    transition: opacity 150ms ease-in-out;
     opacity: 1;
   }
 
   .tooltip.top {
-    bottom: calc(100% + 5px);
-    left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -100%);
   }
 
   .tooltip.bottom {
-    top: calc(100% + 5px);
-    left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, 0);
   }
 
   .tooltip.left {
-    right: calc(100% + 5px);
-    top: 50%;
-    transform: translateY(-50%);
+    transform: translate(-100%, -50%);
   }
 
   .tooltip.right {
-    left: calc(100% + 5px);
-    top: 50%;
-    transform: translateY(-50%);
+    transform: translate(0, -50%);
   }
 
   .tooltip-arrow {

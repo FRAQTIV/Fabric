@@ -1,11 +1,13 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,36 +31,34 @@ func NewExtensionManager(configDir string) *ExtensionManager {
 // ListExtensions handles the listextensions flag action
 func (em *ExtensionManager) ListExtensions() error {
 	if em.registry == nil || em.registry.registry.Extensions == nil {
-		return fmt.Errorf("extension registry not initialized")
+		return errors.New(i18n.T("extension_registry_not_initialized"))
 	}
 
 	for name, entry := range em.registry.registry.Extensions {
-		fmt.Printf("Extension: %s\n", name)
+		fmt.Printf(i18n.T("extension_name_label"), name)
 
-		// Try to load extension details
 		ext, err := em.registry.GetExtension(name)
 		if err != nil {
-			fmt.Printf("  Status: DISABLED - Hash verification failed: %v\n", err)
-			fmt.Printf("  Config Path: %s\n\n", entry.ConfigPath)
+			fmt.Printf(i18n.T("extension_status_disabled"), err)
+			fmt.Printf(i18n.T("extension_config_path_label"), entry.ConfigPath)
 			continue
 		}
 
-		// Print extension details if verification succeeded
-		fmt.Printf("  Status: ENABLED\n")
-		fmt.Printf("  Executable: %s\n", ext.Executable)
-		fmt.Printf("  Type: %s\n", ext.Type)
-		fmt.Printf("  Timeout: %s\n", ext.Timeout)
-		fmt.Printf("  Description: %s\n", ext.Description)
-		fmt.Printf("  Version: %s\n", ext.Version)
+		fmt.Printf("%s", i18n.T("extension_status_enabled"))
+		fmt.Printf(i18n.T("extension_executable_label"), ext.Executable)
+		fmt.Printf(i18n.T("extension_type_label"), ext.Type)
+		fmt.Printf(i18n.T("extension_timeout_label"), ext.Timeout)
+		fmt.Printf(i18n.T("extension_description_label"), ext.Description)
+		fmt.Printf(i18n.T("extension_version_label"), ext.Version)
 
-		fmt.Printf("  Operations:\n")
+		fmt.Printf("%s", i18n.T("extension_operations_label"))
 		for opName, opConfig := range ext.Operations {
 			fmt.Printf("    %s:\n", opName)
-			fmt.Printf("      Command Template: %s\n", opConfig.CmdTemplate)
+			fmt.Printf(i18n.T("extension_command_template_label"), opConfig.CmdTemplate)
 		}
 
 		if fileConfig := ext.GetFileConfig(); fileConfig != nil {
-			fmt.Printf("  File Configuration:\n")
+			fmt.Printf("%s", i18n.T("extension_file_config_label"))
 			for k, v := range fileConfig {
 				fmt.Printf("    %s: %v\n", k, v)
 			}
@@ -73,45 +73,44 @@ func (em *ExtensionManager) ListExtensions() error {
 func (em *ExtensionManager) RegisterExtension(configPath string) error {
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
-		return fmt.Errorf("invalid config path: %w", err)
+		return fmt.Errorf(i18n.T("extension_invalid_config_path"), err)
 	}
 
-	// Get extension name before registration for status message
+	// Parse the config a second time to get the fields for the status message.
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+		return fmt.Errorf(i18n.T("extension_failed_read_config"), err)
 	}
 
 	var ext ExtensionDefinition
 	if err := yaml.Unmarshal(data, &ext); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		return fmt.Errorf(i18n.T("extension_failed_parse_config"), err)
 	}
 
 	if err := em.registry.Register(absPath); err != nil {
-		return fmt.Errorf("failed to register extension: %w", err)
+		return fmt.Errorf(i18n.T("extension_failed_register"), err)
 	}
 
 	if _, err := time.ParseDuration(ext.Timeout); err != nil {
-		return fmt.Errorf("invalid timeout value '%s': must be a duration like '30s' or '1m': %w", ext.Timeout, err)
+		return fmt.Errorf(i18n.T("extension_invalid_timeout"), ext.Timeout, err)
 	}
 
-	// Print success message with extension details
-	fmt.Printf("Successfully registered extension:\n")
-	fmt.Printf("Name: %s\n", ext.Name)
-	fmt.Printf("  Executable: %s\n", ext.Executable)
-	fmt.Printf("  Type: %s\n", ext.Type)
-	fmt.Printf("  Timeout: %s\n", ext.Timeout)
-	fmt.Printf("  Description: %s\n", ext.Description)
-	fmt.Printf("  Version: %s\n", ext.Version)
+	fmt.Printf("%s", i18n.T("extension_registered_success"))
+	fmt.Printf(i18n.T("extension_name_detail_label"), ext.Name)
+	fmt.Printf(i18n.T("extension_executable_label"), ext.Executable)
+	fmt.Printf(i18n.T("extension_type_label"), ext.Type)
+	fmt.Printf(i18n.T("extension_timeout_label"), ext.Timeout)
+	fmt.Printf(i18n.T("extension_description_label"), ext.Description)
+	fmt.Printf(i18n.T("extension_version_label"), ext.Version)
 
-	fmt.Printf("  Operations:\n")
+	fmt.Printf("%s", i18n.T("extension_operations_label"))
 	for opName, opConfig := range ext.Operations {
 		fmt.Printf("    %s:\n", opName)
-		fmt.Printf("      Command Template: %s\n", opConfig.CmdTemplate)
+		fmt.Printf(i18n.T("extension_command_template_label"), opConfig.CmdTemplate)
 	}
 
 	if fileConfig := ext.GetFileConfig(); fileConfig != nil {
-		fmt.Printf("  File Configuration:\n")
+		fmt.Printf("%s", i18n.T("extension_file_config_label"))
 		for k, v := range fileConfig {
 			fmt.Printf("    %s: %v\n", k, v)
 		}
@@ -123,7 +122,7 @@ func (em *ExtensionManager) RegisterExtension(configPath string) error {
 // RemoveExtension handles the rmextension flag action
 func (em *ExtensionManager) RemoveExtension(name string) error {
 	if err := em.registry.Remove(name); err != nil {
-		return fmt.Errorf("failed to remove extension: %w", err)
+		return fmt.Errorf(i18n.T("extension_failed_remove"), err)
 	}
 
 	return nil

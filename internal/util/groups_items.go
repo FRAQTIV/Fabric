@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/samber/lo"
 )
 
@@ -42,17 +43,15 @@ func (o *GroupsItemsSelector[I]) AddGroupItems(group string, items ...I) {
 	o.GroupsItems = append(o.GroupsItems, &GroupItems[I]{group, items})
 }
 
-// getSortedGroupsItems returns a new slice of GroupItems with both groups and their items
-// sorted alphabetically in a case-insensitive manner. The original GroupsItems are not modified.
+// getSortedGroupsItems returns a copy with groups and items sorted case-insensitively.
+// It does not modify o.GroupsItems.
 func (o *GroupsItemsSelector[I]) getSortedGroupsItems() []*GroupItems[I] {
-	// Copy and sort groups (case‑insensitive)
 	sortedGroupsItems := make([]*GroupItems[I], len(o.GroupsItems))
 	copy(sortedGroupsItems, o.GroupsItems)
 	sort.SliceStable(sortedGroupsItems, func(i, j int) bool {
 		return strings.ToLower(sortedGroupsItems[i].Group) < strings.ToLower(sortedGroupsItems[j].Group)
 	})
 
-	// For each group, sort its items
 	for i, groupItems := range sortedGroupsItems {
 		sortedItems := make([]I, len(groupItems.Items))
 		copy(sortedItems, groupItems.Items)
@@ -60,7 +59,6 @@ func (o *GroupsItemsSelector[I]) getSortedGroupsItems() []*GroupItems[I] {
 			return strings.ToLower(o.GetItemKey(sortedItems[i])) < strings.ToLower(o.GetItemKey(sortedItems[j]))
 		})
 
-		// Create a new GroupItems with the sorted items
 		sortedGroupsItems[i] = &GroupItems[I]{
 			Group: groupItems.Group,
 			Items: sortedItems,
@@ -98,13 +96,12 @@ func (o *GroupsItemsSelector[I]) GetGroupAndItemByItemNumber(number int) (group 
 	}
 
 	if !found {
-		err = fmt.Errorf("number %d is out of range", number)
+		err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("groups_items_number_out_of_range"), number))
 	}
 	return
 }
 
 func (o *GroupsItemsSelector[I]) Print(shellCompleteList bool) {
-	// Only print the section header if not in plain output mode
 	if !shellCompleteList {
 		fmt.Printf("\n%v:\n", o.SelectionLabel)
 	}
@@ -121,10 +118,8 @@ func (o *GroupsItemsSelector[I]) Print(shellCompleteList bool) {
 		for _, item := range groupItems.Items {
 			currentItemIndex++
 			if shellCompleteList {
-				// plain mode: "index key"
 				fmt.Printf("%s\n", o.GetItemKey(item))
 			} else {
-				// formatted mode: "[index]    key"
 				fmt.Printf("\t[%d]\t%s\n", currentItemIndex, o.GetItemKey(item))
 			}
 		}
@@ -133,7 +128,7 @@ func (o *GroupsItemsSelector[I]) Print(shellCompleteList bool) {
 
 func (o *GroupsItemsSelector[I]) HasGroup(group string) (ret bool) {
 	for _, groupItems := range o.GroupsItems {
-		if ret = groupItems.Group == group; ret {
+		if ret = strings.EqualFold(groupItems.Group, group); ret {
 			break
 		}
 	}
@@ -146,7 +141,7 @@ func (o *GroupsItemsSelector[I]) FindGroupsByItemFirst(item I) (ret string) {
 	for _, groupItems := range o.GroupsItems {
 		if groupItems.ContainsItemBy(func(groupItem I) bool {
 			groupItemKey := o.GetItemKey(groupItem)
-			return groupItemKey == itemKey
+			return strings.EqualFold(groupItemKey, itemKey)
 		}) {
 			ret = groupItems.Group
 			break
@@ -161,7 +156,7 @@ func (o *GroupsItemsSelector[I]) FindGroupsByItem(item I) (groups []string) {
 	for _, groupItems := range o.GroupsItems {
 		if groupItems.ContainsItemBy(func(groupItem I) bool {
 			groupItemKey := o.GetItemKey(groupItem)
-			return groupItemKey == itemKey
+			return strings.EqualFold(groupItemKey, itemKey)
 		}) {
 			groups = append(groups, groupItems.Group)
 		}

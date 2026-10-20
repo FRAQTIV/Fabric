@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { derived, writable } from 'svelte/store';
 import { modelsApi } from '$lib/api/models';
 import { configApi } from '$lib/api/config';
 import type { VendorModel, ModelConfig } from '$lib/interfaces/model-interface';
@@ -13,13 +13,31 @@ export const modelConfig = writable<ModelConfig>({
 });
 
 export const availableModels = writable<VendorModel[]>([]);
+export const selectedVendor = writable<string>('');
 
-// Initialize available models
+export const vendorNames = derived(availableModels, ($models) =>
+  [...new Set($models.map(m => m.vendor))].sort((a, b) =>
+    a.toLowerCase().localeCompare(b.toLowerCase())
+  )
+);
+
+export const filteredModels = derived(
+  [availableModels, selectedVendor],
+  ([$models, $vendor]) =>
+    $vendor ? $models.filter(m => m.vendor === $vendor) : $models
+);
+
 export async function loadAvailableModels() {
   try {
     const models = await modelsApi.getAvailable();
     console.log('Load models:', models);
-    const uniqueModels = [...new Map(models.map(model => [model.name, model])).values()];
+    const uniqueModels = [...new Map(models.map(model => [`${model.vendor}:${model.name}`, model])).values()];
+    // Sort in the CLI order: vendor, then model name, both case-insensitive.
+    uniqueModels.sort((a, b) => {
+      const vendorCmp = a.vendor.toLowerCase().localeCompare(b.vendor.toLowerCase());
+      if (vendorCmp !== 0) return vendorCmp;
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
     availableModels.set(uniqueModels);
   } catch (error) {
     console.error('Client failed to load available models:', error);
@@ -27,7 +45,6 @@ export async function loadAvailableModels() {
   }
 }
 
-// Initialize config
 export async function initializeConfig() {
   try {
     const config = await configApi.get();

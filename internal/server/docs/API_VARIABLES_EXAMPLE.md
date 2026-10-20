@@ -12,7 +12,7 @@ This example demonstrates how to use pattern variables in REST API calls to the 
     {
       "userInput": "Hello my name is Kayvan",
       "patternName": "translate",
-      "model": "gpt-4o",
+      "model": "gpt-5.2",
       "vendor": "openai",
       "contextName": "",
       "strategyName": "",
@@ -64,7 +64,7 @@ curl -X POST http://localhost:8080/api/chat \
       {
         "userInput": "Hello my name is Kayvan",
         "patternName": "translate",
-        "model": "gpt-4o",
+        "model": "gpt-5.2",
         "vendor": "openai",
         "variables": {
           "lang_code": "fr"
@@ -85,7 +85,7 @@ For patterns that use multiple variables:
     {
       "userInput": "Analyze this business model",
       "patternName": "custom_analysis",
-      "model": "gpt-4o",
+      "model": "gpt-5.2",
       "variables": {
         "role": "expert consultant",
         "experience": "15",

@@ -1,78 +1,82 @@
-import { createPipeline, transformers } from 'pdf-to-markdown-core/lib/src';
-import { PARSE_SCHEMA } from 'pdf-to-markdown-core/lib/src/PdfParser';
-import * as pdfjs from 'pdfjs-dist';
-import pdfConfig from './pdf-config';
+import type { PdfProcessResult } from '@firecrawl/pdf-inspector-wasm';
+import type { PdfRequest, PdfResponse } from '../workers/pdf-inspector.worker';
 
-export class PdfConversionService {
-  constructor() {
-    if (typeof window !== 'undefined') {
-      console.log('PDF.js version:', pdfjs.version);
-      // Initialize PDF.js configuration from the shared config
-      pdfConfig.initialize();
-      console.log('Worker configuration complete');
-    }
-  }
-
-  async convertToMarkdown(file: File): Promise<string> {
-    console.log('Starting PDF conversion:', {
-      fileName: file.name,
-      fileSize: file.size
-    });
-
-    const buffer = await file.arrayBuffer();
-    console.log('Buffer created:', buffer.byteLength);
-
-    const pipeline = createPipeline(pdfjs, {
-      transformConfig: { 
-        transformers 
-      }
-    });
-    console.log('Pipeline created');
-
-    const result = await pipeline.parse(
-      buffer,
-      (progress) => console.log('Processing:', {
-        stage: progress.stages,
-        details: progress.stageDetails,
-        progress: progress.stageProgress
-      })
-    );
-    console.log('Parse complete, validating result');
-
-    const transformed = result.transform();
-    console.log('Transform applied:', transformed);
-
-    const markdown = transformed.convert({
-        convert: (items) => {
-          console.log('PDF Structure:', {
-            itemCount: items.length,
-            firstItem: items[0],
-            schema: PARSE_SCHEMA  // ['transform', 'width', 'height', 'str', 'fontName', 'dir']
-          });
-      
-          const text = items
-            .map(item => item.value('str'))  // Using 'str' instead of 'text' based on PARSE_SCHEMA
-            .filter(Boolean)
-            .join('\n');
-      
-          console.log('Converted text:', {
-            length: text.length,
-            preview: text.substring(0, 100)
-          });
-      
-          return text;
-        }
-      });
-      
-
-    return markdown;
-  }
+export interface PdfConversion {
+	markdown: string;
+	warning?: string;
 }
 
-    
+// Turns the worker result into Markdown and an optional warning. Throws when
+// there is no usable text.
+export function interpretPdfResult(result: PdfProcessResult, fileName: string): PdfConversion {
+	if (result.pdfType === 'Scanned' || result.pdfType === 'ImageBased') {
+		throw new Error(
+			`${fileName} contains no machine-readable text. OCR is necessary, and the Fabric web interface does not include OCR.`
+		);
+	}
+	const markdown = result.markdown;
+	if (!markdown || markdown.trim().length === 0) {
+		throw new Error(`${fileName}: the conversion returned no text.`);
+	}
+	const warnings: string[] = [];
+	if (result.pdfType === 'Mixed') {
+		warnings.push(
+			`${fileName}: pages ${result.pagesNeedingOcr.join(', ')} contain no machine-readable text. OCR is necessary for those pages, and their content is not included.`
+		);
+	}
+	if (result.hasEncodingIssues) {
+		warnings.push(`Some text in ${fileName} did not decode correctly.`);
+	}
+	return warnings.length > 0 ? { markdown, warning: warnings.join(' ') } : { markdown };
+}
 
+export class PdfConversionService {
+	private worker: Worker | null = null;
+	private nextId = 1;
+	private pending = new Map<
+		number,
+		{ resolve: (result: PdfProcessResult) => void; reject: (error: Error) => void }
+	>();
 
+	async convertToMarkdown(file: File): Promise<PdfConversion> {
+		const buffer = await file.arrayBuffer();
+		const worker = this.getWorker();
+		const id = this.nextId++;
+		const result = await new Promise<PdfProcessResult>((resolve, reject) => {
+			this.pending.set(id, { resolve, reject });
+			worker.postMessage({ id, buffer } satisfies PdfRequest, [buffer]);
+		});
+		return interpretPdfResult(result, file.name);
+	}
 
-
-
-
+	// Lazy creation delays the WASM download until the first PDF attachment.
+	private getWorker(): Worker {
+		if (this.worker) return this.worker;
+		const worker = new Worker(new URL('../workers/pdf-inspector.worker.ts', import.meta.url), {
+			type: 'module'
+		});
+		worker.onmessage = (event: MessageEvent<PdfResponse>) => {
+			const response = event.data;
+			const entry = this.pending.get(response.id);
+			if (!entry) return;
+			this.pending.delete(response.id);
+			if (response.ok) {
+				entry.resolve(response.result);
+			} else {
+				entry.reject(new Error(response.error));
+			}
+		};
+		// Fires only when the worker script itself does not load. The handler
+		// terminates its own worker, so a later replacement worker is safe.
+		worker.onerror = () => {
+			for (const { reject } of this.pending.values()) {
+				reject(new Error('The PDF worker failed.'));
+			}
+			this.pending.clear();
+			worker.terminate();
+			this.worker = null;
+		};
+		this.worker = worker;
+		return worker;
+	}
+}

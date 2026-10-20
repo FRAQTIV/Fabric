@@ -1,17 +1,20 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/danielmiessler/fabric/internal/core"
+	"github.com/danielmiessler/fabric/internal/i18n"
 	"github.com/danielmiessler/fabric/internal/tools/youtube"
 )
 
-// handleToolProcessing handles YouTube and web scraping tool processing
+// handleToolProcessing runs the YouTube, web scrape, and Spotify tools and collects their output.
+// When the run is not a chat request, it also prints the output.
 func handleToolProcessing(currentFlags *Flags, registry *core.PluginRegistry) (messageTools string, err error) {
 	if currentFlags.YouTube != "" {
 		if !registry.YouTube.IsConfigured() {
-			err = fmt.Errorf("YouTube is not configured, please run the setup procedure")
+			err = errors.New(i18n.T("youtube_not_configured"))
 			return
 		}
 
@@ -25,7 +28,7 @@ func handleToolProcessing(currentFlags *Flags, registry *core.PluginRegistry) (m
 			} else {
 				var videos []*youtube.VideoMeta
 				if videos, err = registry.YouTube.FetchPlaylistVideos(playlistId); err != nil {
-					err = fmt.Errorf("error fetching playlist videos: %w", err)
+					err = fmt.Errorf("%s", fmt.Sprintf(i18n.T("error_fetching_playlist_videos"), err))
 					return
 				}
 
@@ -58,10 +61,9 @@ func handleToolProcessing(currentFlags *Flags, registry *core.PluginRegistry) (m
 
 	if currentFlags.ScrapeURL != "" || currentFlags.ScrapeQuestion != "" {
 		if !registry.Jina.IsConfigured() {
-			err = fmt.Errorf("scraping functionality is not configured. Please set up Jina to enable scraping")
+			err = errors.New(i18n.T("scraping_not_configured"))
 			return
 		}
-		// Check if the scrape_url flag is set and call ScrapeURL
 		if currentFlags.ScrapeURL != "" {
 			var website string
 			if website, err = registry.Jina.ScrapeURL(currentFlags.ScrapeURL); err != nil {
@@ -70,7 +72,6 @@ func handleToolProcessing(currentFlags *Flags, registry *core.PluginRegistry) (m
 			messageTools = AppendMessage(messageTools, website)
 		}
 
-		// Check if the scrape_question flag is set and call ScrapeQuestion
 		if currentFlags.ScrapeQuestion != "" {
 			var website string
 			if website, err = registry.Jina.ScrapeQuestion(currentFlags.ScrapeQuestion); err != nil {
@@ -79,6 +80,62 @@ func handleToolProcessing(currentFlags *Flags, registry *core.PluginRegistry) (m
 
 			messageTools = AppendMessage(messageTools, website)
 		}
+
+		if !currentFlags.IsChatRequest() {
+			err = currentFlags.WriteOutput(messageTools)
+			return
+		}
+	}
+
+	if currentFlags.SerplySearch != "" {
+		if !registry.Serply.IsConfigured() {
+			err = errors.New(i18n.T("serply_not_configured"))
+			return
+		}
+
+		var results string
+		if results, err = registry.Serply.Search(currentFlags.SerplySearch); err != nil {
+			return
+		}
+		messageTools = AppendMessage(messageTools, results)
+
+		if !currentFlags.IsChatRequest() {
+			err = currentFlags.WriteOutput(messageTools)
+			return
+		}
+	}
+
+	if currentFlags.FirecrawlSearch != "" {
+		if !registry.Firecrawl.IsConfigured() {
+			err = errors.New(i18n.T("firecrawl_not_configured"))
+			return
+		}
+
+		var results string
+		if results, err = registry.Firecrawl.Search(currentFlags.FirecrawlSearch); err != nil {
+			return
+		}
+		messageTools = AppendMessage(messageTools, results)
+
+		if !currentFlags.IsChatRequest() {
+			err = currentFlags.WriteOutput(messageTools)
+			return
+		}
+	}
+
+	if currentFlags.Spotify != "" {
+		if !registry.Spotify.IsConfigured() {
+			err = errors.New(i18n.T("spotify_not_configured"))
+			return
+		}
+
+		var metadata any
+		if metadata, err = registry.Spotify.GrabMetadataForURL(currentFlags.Spotify); err != nil {
+			return
+		}
+
+		formattedMetadata := registry.Spotify.FormatMetadataAsText(metadata)
+		messageTools = AppendMessage(messageTools, formattedMetadata)
 
 		if !currentFlags.IsChatRequest() {
 			err = currentFlags.WriteOutput(messageTools)
