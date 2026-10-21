@@ -1,10 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { config as settings } from "./src/config.js";
 import { createHandler } from "./src/mcp.js";
-
-// Vercel's Node runtime treats this file as the service's server entrypoint and
-// routes every request of the service here (see /vercel.json rewrites).
-export const config = { maxDuration: 120 };
+import { isNodeRequest, sendWebResponse, toWebRequest } from "./src/node-adapter.js";
 
 const mcp = createHandler();
 
@@ -23,9 +21,20 @@ function suppliedToken(url: URL): string {
   return m ? decodeURIComponent(m[1]) : "";
 }
 
-export default async function handler(request: Request): Promise<Response> {
+export async function handle(request: Request): Promise<Response> {
   if (settings.pathToken && !tokenMatches(suppliedToken(new URL(request.url)))) {
     return new Response("Not found", { status: 404 });
   }
   return mcp(request);
 }
+
+// Vercel's Node runtime treats this file as the service entrypoint. The `{ fetch }` export is
+// the Web-standard form; the IncomingMessage branch keeps it working if invoked Node-style.
+export default {
+  async fetch(input: Request | IncomingMessage, res?: ServerResponse): Promise<Response | void> {
+    if (!isNodeRequest(input)) return handle(input as Request);
+    const response = await handle(await toWebRequest(input));
+    if (!res) return response;
+    await sendWebResponse(res, response);
+  },
+};
