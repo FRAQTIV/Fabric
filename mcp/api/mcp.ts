@@ -10,10 +10,19 @@ function tokenMatches(supplied: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// The token arrives as ?token= when the rewrite's destination query is passed through,
+// or as the last segment of the public path (/mcp/<token>) when the function observes
+// the original request URL, as Vercel services do.
+function suppliedToken(url: URL): string {
+  const fromQuery = url.searchParams.get("token");
+  if (fromQuery) return fromQuery;
+  const m = url.pathname.match(/^\/mcp\/([^/]+)\/?$/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
 async function guarded(request: Request): Promise<Response> {
-  if (config.pathToken) {
-    const supplied = new URL(request.url).searchParams.get("token") ?? "";
-    if (!tokenMatches(supplied)) return new Response("Not found", { status: 404 });
+  if (config.pathToken && !tokenMatches(suppliedToken(new URL(request.url)))) {
+    return new Response("Not found", { status: 404 });
   }
   return mcp(request);
 }

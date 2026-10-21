@@ -76,8 +76,10 @@ Keep both processes running (a `launchd`/systemd service, or a terminal multiple
 
 ## 2. Vercel: the MCP server
 
-Deploy this folder as its own Vercel project with **Root Directory = `mcp`** (no framework).
-Environment variables (Production):
+The repository root carries a `vercel.json` that declares this folder as the `mcp` **service**
+(Vercel multi-service project) and exposes it publicly at `/mcp/:token`; everything else in the
+repo stays undeployed. Import the repository root as the project (not `mcp/`), and Vercel builds
+only the declared service. Environment variables (Production):
 
 | Variable | Value |
 | --- | --- |
@@ -115,6 +117,8 @@ HOME_AGENT_URL=http://localhost:8080 MCP_PATH_TOKEN=dev npm run dev   # terminal
 MCP_PATH_TOKEN=dev npm run smoke                       # terminal 3: JSON-RPC round-trip
 npm run typecheck
 ```
+
+`vercel dev` from the repository root runs the service through the real `vercel.json` routing instead.
 
 Point `HOME_AGENT_URL` at a real tunnel (and set `HOME_AGENT_API_KEY`) to test real transcripts.
 

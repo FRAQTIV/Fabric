@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "mcp": {
+      "root": "mcp",
+      "runtime": "node",
+      "functions": {
+        "api/mcp.ts": {
+          "maxDuration": 120
+        }
+      }
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/mcp/:token",
+      "destination": { "service": "mcp", "path": "/api/mcp?token=:token" }
+    }
+  ]
+}
