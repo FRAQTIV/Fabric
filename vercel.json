@@ -3,18 +3,13 @@
   "services": {
     "mcp": {
       "root": "mcp",
-      "runtime": "node",
-      "functions": {
-        "api/mcp.ts": {
-          "maxDuration": 120
-        }
-      }
+      "runtime": "node"
     }
   },
   "rewrites": [
     {
       "source": "/mcp/:token",
-      "destination": { "service": "mcp", "path": "/api/mcp?token=:token" }
+      "destination": { "service": "mcp" }
     }
   ]
 }

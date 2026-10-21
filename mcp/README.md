@@ -79,7 +79,15 @@ Keep both processes running (a `launchd`/systemd service, or a terminal multiple
 The repository root carries a `vercel.json` that declares this folder as the `mcp` **service**
 (Vercel multi-service project) and exposes it publicly at `/mcp/:token`; everything else in the
 repo stays undeployed. Import the repository root as the project (not `mcp/`), and Vercel builds
-only the declared service. Environment variables (Production):
+only the declared service. `server.ts` is the service entrypoint Vercel's Node runtime looks for;
+it checks the token and hands the request to the MCP handler.
+
+Two project settings matter:
+
+- **Deployment Protection → Vercel Authentication**: set to *Only Preview Deployments* (or off).
+  New projects protect every deployment with a Vercel login, which Claude's connector cannot pass.
+  The secret path token is the access control instead.
+- Environment variables (Production):
 
 | Variable | Value |
 | --- | --- |
