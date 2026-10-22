@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare quick tunnel to the Fabric transcript agent
+After=network-online.target fabric-agent.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080
+Restart=always
+RestartSec=5
+DynamicUser=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

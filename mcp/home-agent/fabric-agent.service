@@ -1,0 +1,17 @@
+[Unit]
+Description=Fabric REST server (YouTube transcript agent for fabric-mcp)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+Environment=HOME=__HOME__
+EnvironmentFile=/etc/fabric-agent.env
+ExecStart=/usr/local/bin/fabric --serve --address 127.0.0.1:8080 $FABRIC_EXTRA_ARGS
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
