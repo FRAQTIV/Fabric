@@ -122,6 +122,23 @@ Claude calls `extract_wisdom`, receives the pattern + transcript, and produces t
 SUMMARY / IDEAS / INSIGHTS / QUOTES / … output. Other patterns: "apply the `summarize` pattern to …",
 or "list fabric patterns about writing".
 
+## 4. ChatGPT (optional)
+
+ChatGPT connects to remote MCP servers as a custom connector (app) — Custom GPT *Actions* do not apply, they need
+a REST/OpenAPI backend. In ChatGPT: Settings → Connectors (Apps) → Advanced → enable **Developer mode** → Create →
+name `Fabric`, MCP server URL `https://fabric-theta-murex.vercel.app/mcp/<MCP_PATH_TOKEN>`, authentication none
+(exact labels change between releases). Then put these instructions in the project or custom GPT that uses it:
+
+> You have the Fabric MCP connector. When the user gives a YouTube link and asks for wisdom, insights, a summary,
+> or any Fabric pattern, call the matching tool instead of answering from memory: `extract_wisdom(url)` for
+> wisdom; `apply_pattern(url, pattern)` for a named pattern (`list_patterns(query)` to find one; `get_pattern(name)`
+> to read it); `get_transcript(url, timestamps?)` for the raw transcript. The tool returns a PATTERN section and an
+> INPUT section: follow the PATTERN instructions exactly against the INPUT and present only the result, in
+> Markdown. If a tool reports the home agent is offline, say so and offer pattern-only help with pasted text.
+> Run `health` when asked whether the connector works.
+
+The URL contains the access token: share it only with people who may use the server.
+
 ## Local development
 
 ```bash
