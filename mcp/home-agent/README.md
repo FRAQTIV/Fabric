@@ -36,11 +36,30 @@ curl -s -X POST http://127.0.0.1:8080/youtube/transcript \
   -d '{"url":"https://youtu.be/URCUAj1bt28","language":"en"}' | head -c 300
 ```
 
-## Stable hostname (named tunnel)
+## Stable hostname (named tunnel) — recommended
 
 A quick tunnel gets a new `*.trycloudflare.com` URL whenever `cloudflared` restarts, which means
-updating `HOME_AGENT_URL` in Vercel each time. If you have a domain on Cloudflare, use a named
-tunnel instead (free):
+updating `HOME_AGENT_URL` in Vercel each time. With a domain on Cloudflare, a named tunnel gives a
+permanent hostname (free) and is managed from the dashboard:
+
+1. Cloudflare dashboard → **Zero Trust → Networks → Tunnels → Create a tunnel** → *Cloudflared* →
+   name it `fabric-agent` → copy the **token** shown on the install step.
+2. Still in the tunnel: **Public Hostname → Add** → subdomain `fabric-agent`, your domain, service
+   **HTTP** `localhost:8080` → Save. Cloudflare creates the DNS record for you.
+3. On `io`:
+
+```bash
+CLOUDFLARE_TUNNEL_TOKEN=<token> FABRIC_API_KEY=<key> ./install.sh      # fresh install
+# or, if the quick tunnel is already running:
+sudo systemctl disable --now cloudflared-quick && sudo cloudflared service install <token>
+```
+
+`HOME_AGENT_URL` is then `https://fabric-agent.<your-domain>` and never changes; the tunnel runs as
+`cloudflared.service` and reconnects on its own. (The same can be scripted against the Cloudflare
+API — tunnel, ingress and DNS record — e.g. through the Cloudflare API MCP server at
+`https://mcp.cloudflare.com/mcp`; the deprecated *Workers Bindings* connector has no tunnel tools.)
+
+The CLI-driven equivalent, if you prefer to keep the config in a file on the server:
 
 ```bash
 cloudflared tunnel login                      # one-time browser auth
@@ -57,8 +76,6 @@ EOF
 sudo systemctl disable --now cloudflared-quick
 sudo cloudflared service install && sudo systemctl enable --now cloudflared
 ```
-
-`HOME_AGENT_URL` is then `https://fabric-agent.example.com` and never changes.
 
 ## YouTube bot checks
 
