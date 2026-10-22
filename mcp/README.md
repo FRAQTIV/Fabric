@@ -21,6 +21,22 @@ tools still work and transcript tools return a clear "home agent offline" error.
 The server never calls an LLM. It hands Claude the transcript and the pattern's system prompt;
 Claude does the reasoning, so there is no second model bill.
 
+## No LLM API keys
+
+This setup needs **no OpenAI or Anthropic API key anywhere**, which is a deliberate difference from
+running Fabric's CLI:
+
+| Component | LLM involvement |
+| --- | --- |
+| MCP server on Vercel | none — fetches the pattern text and the transcript, returns both |
+| `fabric --serve` on `io` | none — only the `/youtube/transcript` endpoint is used; `fabric --setup` can skip every vendor |
+| Claude (chat, Cowork) / ChatGPT plugin | the model you are already subscribed to applies the pattern |
+
+So the reasoning is billed to the Claude or ChatGPT subscription you already pay for, not to a per-token
+API account. The only secrets in the system are the connector path token and the home-agent API key.
+If you ever want the CLI (`fabric -p extract_wisdom …`) on `io` as well, upstream now has a Claude Code
+provider that uses the local Claude subscription login instead of an API key (`fabric --setup` → Claude Code).
+
 ## Tools
 
 | Tool | What it does |
