@@ -1,5 +1,8 @@
 # Home transcript agent — runbook for `io` (Arch Linux)
 
+Diagrams of the whole system (architecture, files and processes on `io`, request sequence, state
+lifecycle, troubleshooting): [`docs/fabric-on-io.md`](../../docs/fabric-on-io.md).
+
 ## What lives where
 
 | Piece | Where it runs | Address | Who created it |
