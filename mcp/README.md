@@ -34,6 +34,10 @@ Claude does the reasoning, so there is no second model bill.
 
 ## 1. Home machine: transcript agent
 
+**Linux server with systemd (Arch):** use [`home-agent/`](home-agent/README.md) — one script installs
+the packages, builds `fabric`, and runs the agent and the tunnel as services. The manual steps below
+are the same thing by hand (macOS/other).
+
 Needs Go 1.26+ (to build Fabric), plus `yt-dlp` and `deno` (yt-dlp's JavaScript runtime for YouTube) on `PATH`.
 
 ```bash
