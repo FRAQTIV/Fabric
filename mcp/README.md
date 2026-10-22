@@ -34,9 +34,8 @@ Claude does the reasoning, so there is no second model bill.
 
 ## 1. Home machine: transcript agent
 
-**Linux server with systemd (Arch):** use [`home-agent/`](home-agent/README.md) — one script installs
-the packages, builds `fabric`, and runs the agent and the tunnel as services. The manual steps below
-are the same thing by hand (macOS/other).
+**This deployment:** the agent runs on `io` (Arch Linux) — follow [`home-agent/README.md`](home-agent/README.md),
+which has the exact hosts, names and steps. The manual steps below are the same thing by hand (macOS/other).
 
 Needs Go 1.26+ (to build Fabric), plus `yt-dlp` and `deno` (yt-dlp's JavaScript runtime for YouTube) on `PATH`.
 
@@ -100,7 +99,10 @@ Two project settings matter:
 | `MCP_PATH_TOKEN` | a long random secret, e.g. `openssl rand -hex 24` — becomes part of the connector URL |
 | `PATTERNS_BASE_URL` | optional; default `https://raw.githubusercontent.com/FRAQTIV/Fabric/main` |
 
-The MCP endpoint is `https://<project>.vercel.app/mcp/<MCP_PATH_TOKEN>`.
+The MCP endpoint is `https://<project>.vercel.app/mcp/<MCP_PATH_TOKEN>` — for this deployment
+(Vercel project `fabric`): `https://fabric-theta-murex.vercel.app/mcp/<MCP_PATH_TOKEN>`. Use the
+project's production domain; with Standard Protection, team aliases such as `fabric-fraqtiv.vercel.app`
+stay behind Vercel login.
 Requests with a wrong or missing token get a 404. There is no OAuth; the secret path is the
 access control, so treat the URL like a password. Leave `MCP_PATH_TOKEN` empty only for local testing.
 
