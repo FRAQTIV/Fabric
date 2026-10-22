@@ -13,6 +13,8 @@ Vercel: mcp/  (this folder)          ──► raw.githubusercontent.com  (Fabri
 Cloudflare Tunnel ──► your home machine: `fabric --serve` + yt-dlp
 ```
 
+Diagrams with real hosts, paths and the request sequence: [`docs/fabric-on-io.md`](../docs/fabric-on-io.md).
+
 Why two pieces: YouTube blocks caption downloads from cloud/datacenter IPs. `yt-dlp` works from a
 residential connection, so transcripts are fetched by the Fabric REST server on **your** machine
 and relayed through a tunnel. The Vercel part is always up; when the home machine is off, pattern
