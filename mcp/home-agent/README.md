@@ -42,11 +42,16 @@ A quick tunnel gets a new `*.trycloudflare.com` URL whenever `cloudflared` resta
 updating `HOME_AGENT_URL` in Vercel each time. With a domain on Cloudflare, a named tunnel gives a
 permanent hostname (free) and is managed from the dashboard:
 
-1. Cloudflare dashboard → **Zero Trust → Networks → Tunnels → Create a tunnel** → *Cloudflared* →
-   name it `fabric-agent` → copy the **token** shown on the install step.
-2. Still in the tunnel: **Public Hostname → Add** → subdomain `fabric-agent`, your domain, service
-   **HTTP** `localhost:8080` → Save. Cloudflare creates the DNS record for you.
-3. On `io`:
+1. Cloudflare dashboard → **Networking → Tunnels → Create a tunnel** → name it `fabric-agent` →
+   **Create Tunnel** → on the install step copy the **token** (the long string in the install
+   command; the OS choice does not matter for Arch, `install.sh` runs the equivalent).
+2. On `io`, run the install (step 3 below). The tunnel shows **Healthy** in the dashboard once connected.
+3. Back in the dashboard: open the tunnel → **Routes** tab → **Add route → Published application** →
+   **Hostname**: subdomain `fabric-agent` + your domain from the drop-down → **Service URL**
+   `http://localhost:8080` → **Add route**. This is the rule "requests for
+   `https://fabric-agent.<domain>` go to port 8080 on `io`"; Cloudflare creates the DNS record itself.
+
+The install on `io`:
 
 ```bash
 CLOUDFLARE_TUNNEL_TOKEN=<token> FABRIC_API_KEY=<key> ./install.sh      # fresh install
