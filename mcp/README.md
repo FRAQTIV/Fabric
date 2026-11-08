@@ -116,6 +116,7 @@ Two project settings matter:
 | `HOME_AGENT_API_KEY` | the same key the home agent runs with (`FABRIC_API_KEY` / `--api-key`) |
 | `MCP_PATH_TOKEN` | a long random secret, e.g. `openssl rand -hex 24` — becomes part of the connector URL |
 | `PATTERNS_BASE_URL` | optional; default `https://raw.githubusercontent.com/FRAQTIV/Fabric/main` |
+| `MAX_STREAM_MS` | optional; default `250000`. Hard bound on any event-stream response; keep it below the function's maxDuration (300 s) |
 
 The MCP endpoint is `https://<project>.vercel.app/mcp/<MCP_PATH_TOKEN>` — for this deployment
 (Vercel project `fabric`): `https://fabric-theta-murex.vercel.app/mcp/<MCP_PATH_TOKEN>`. Use the
@@ -165,6 +166,7 @@ npm run mock-agent                                     # terminal 1: fake home a
 HOME_AGENT_URL=http://localhost:8080 MCP_PATH_TOKEN=dev npm run dev   # terminal 2
 MCP_PATH_TOKEN=dev npm run smoke                       # terminal 3: JSON-RPC round-trip
 npm run typecheck
+npm test                                               # node:test suite (protocol, listen streams, stream bound)
 ```
 
 `vercel dev` from the repository root runs the service through the real `vercel.json` routing instead.
@@ -182,3 +184,8 @@ Point `HOME_AGENT_URL` at a real tunnel (and set `HOME_AGENT_API_KEY`) to test r
 - **"No captions were returned"** — the video has no subtitles in that language; try `language: "es"` etc.
   yt-dlp itself occasionally needs an update (`yt-dlp -U`) when YouTube changes things.
 - **Slow first call** — the transcript tool waits up to `TRANSCRIPT_TIMEOUT_MS` (100 s); long videos take 10–30 s.
+- **Vercel logs `Task timed out after 300 seconds` on every other request** — a client speaking MCP
+  2026-07-28 opened a `subscriptions/listen` stream, which the SDK holds open until the platform kills the
+  function (modelcontextprotocol/typescript-sdk#2873). The server no longer advertises `tools.listChanged`,
+  so the SDK closes those streams at once, and every event stream is cut at `MAX_STREAM_MS` as a backstop.
+  Each request now logs one JSON line (`{"mcp":"response","method":…,"status":…,"ms":…}`) without the URL.
