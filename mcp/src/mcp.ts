@@ -218,6 +218,15 @@ export function createHandler() {
         },
       );
     },
-    { serverInfo: { name: "fabric-mcp", version: VERSION } },
+    {
+      serverInfo: { name: "fabric-mcp", version: VERSION },
+      // The tool list never changes at runtime and, on Vercel, every request runs in its own
+      // invocation with its own in-memory event bus, so a list_changed notification could never
+      // be delivered anyway. Advertising listChanged makes 2026-07-28 clients open a
+      // subscriptions/listen stream that the SDK holds open until the platform kills the
+      // function (modelcontextprotocol/typescript-sdk#2873). With it off, the SDK acknowledges
+      // the listen request with an empty filter and closes the stream at once.
+      capabilities: { tools: { listChanged: false } },
+    },
   );
 }
