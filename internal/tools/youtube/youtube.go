@@ -205,25 +205,39 @@ func detectError(ytOutput io.Reader) error {
 	return nil
 }
 
-// ytDlpLangArgs returns the built-in --sub-langs flag for language. yt-dlp
-// does not replace a repeated --sub-langs flag. It adds the values together.
-// So the function returns nil when the user arguments set the languages.
-func ytDlpLangArgs(language string, userArgs []string) []string {
+// ytDlpLangSteps returns the built-in --sub-langs flag for each yt-dlp run,
+// in order. A nil step is a run without the flag, where yt-dlp picks one
+// track itself. yt-dlp does not replace a repeated --sub-langs flag. It adds
+// the values together. So when the user arguments set the languages, every
+// step is nil.
+//
+// No step uses a wildcard such as "en.*". YouTube names its auto-translated
+// tracks <language>-<source> (en-af, en-ja, en-zh-CN), so a wildcard
+// downloads one track per caption language of the video, often dozens, and
+// YouTube answers HTTP 429 after the first one or two. The first step names
+// the exact tracks. The second matches regional variants only (en-GB,
+// es-419): yt-dlp matches --sub-langs case-insensitively, and the (?-i:...)
+// group makes the region part case-sensitive, so en-af does not match.
+func ytDlpLangSteps(language string, userArgs []string) [][]string {
 	userSetsLangs := slices.ContainsFunc(userArgs, func(a string) bool {
 		return strings.HasPrefix(a, "--sub-lang")
 	})
 	if language == "" || userSetsLangs {
-		return nil
+		return [][]string{nil, nil}
 	}
-	langMatch := language
+	base := language
 	if len(language) > 2 {
-		langMatch = language[:2]
+		base = language[:2]
 	}
-	langOpts := language + "," + langMatch + ".*"
-	if langMatch != language {
-		langOpts += "," + langMatch
+	exact := language
+	if base != language {
+		exact += "," + base
 	}
-	return []string{"--sub-langs", langOpts}
+	return [][]string{
+		{"--sub-langs", exact},
+		{"--sub-langs", base + `-(?-i:[A-Z]{2}|\d{3})`},
+		nil,
+	}
 }
 
 // tryMethodYtDlpInternal downloads the subtitles for videoId with yt-dlp, then
@@ -259,9 +273,10 @@ func (o *YouTube) tryMethodYtDlpInternal(videoId string, language string, additi
 			return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("youtube_invalid_ytdlp_arguments"), err))
 		}
 	}
-	langArgs := ytDlpLangArgs(language, userArgs)
-
-	for retry := 1; retry >= 0; retry-- {
+	// Stop at the first run that leaves a VTT file without an error. A
+	// language that has no track gives only a yt-dlp warning, so an error
+	// check alone would stop after a run that downloaded nothing.
+	for _, langArgs := range ytDlpLangSteps(language, userArgs) {
 		var ytOutput []byte
 		args := slices.Concat(baseArgs, langArgs, userArgs, []string{videoURL})
 		cmd := exec.Command("yt-dlp", args...)
@@ -269,10 +284,10 @@ func (o *YouTube) tryMethodYtDlpInternal(videoId string, language string, additi
 		ytOutput, err = cmd.CombinedOutput()
 		ytReader := bytes.NewReader(ytOutput)
 		if err = detectError(ytReader); err == nil {
-			break
+			if _, findErr := o.findVTTFilesWithFallback(tempDir, language); findErr == nil {
+				break
+			}
 		}
-		// Retry without the built-in language filter.
-		langArgs = nil
 	}
 	if err != nil {
 		return
