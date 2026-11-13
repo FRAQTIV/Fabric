@@ -208,6 +208,12 @@ func detectError(ytOutput io.Reader) error {
 // ytDlpLangArgs returns the built-in --sub-langs flag for language. yt-dlp
 // does not replace a repeated --sub-langs flag. It adds the values together.
 // So the function returns nil when the user arguments set the languages.
+//
+// It names exact tracks only, never a wildcard such as "en.*". YouTube names
+// its auto-translated tracks <language>-<source> (en-af, en-ja, en-zh-CN), so
+// a wildcard downloads one track per caption language of the video, often
+// dozens, and YouTube answers HTTP 429 after the first one or two. If no exact
+// track exists, the caller retries without this flag and yt-dlp picks one.
 func ytDlpLangArgs(language string, userArgs []string) []string {
 	userSetsLangs := slices.ContainsFunc(userArgs, func(a string) bool {
 		return strings.HasPrefix(a, "--sub-lang")
@@ -215,13 +221,9 @@ func ytDlpLangArgs(language string, userArgs []string) []string {
 	if language == "" || userSetsLangs {
 		return nil
 	}
-	langMatch := language
+	langOpts := language
 	if len(language) > 2 {
-		langMatch = language[:2]
-	}
-	langOpts := language + "," + langMatch + ".*"
-	if langMatch != language {
-		langOpts += "," + langMatch
+		langOpts += "," + language[:2]
 	}
 	return []string{"--sub-langs", langOpts}
 }

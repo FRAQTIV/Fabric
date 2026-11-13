@@ -171,12 +171,15 @@ func TestYtDlpLangArgs(t *testing.T) {
 		userArgs []string
 		want     []string
 	}{
-		{"no user flag", "en", nil, []string{"--sub-langs", "en,en.*"}},
+		// No "en.*": YouTube names auto-translated tracks en-<source> (en-af,
+		// en-ja, ...), so a wildcard asks for dozens of tracks and YouTube
+		// answers HTTP 429 after the first one or two.
+		{"no user flag", "en", nil, []string{"--sub-langs", "en"}},
 		{"user --sub-lang", "en", []string{"--sub-lang", "en-orig"}, nil},
 		{"user --sub-langs=", "en", []string{"--sub-langs=en-orig"}, nil},
 		{"no language", "", nil, nil},
-		{"one letter language", "e", nil, []string{"--sub-langs", "e,e.*"}},
-		{"regional language", "en-GB", nil, []string{"--sub-langs", "en-GB,en.*,en"}},
+		{"one letter language", "e", nil, []string{"--sub-langs", "e"}},
+		{"regional language", "en-GB", nil, []string{"--sub-langs", "en-GB,en"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
