@@ -37,7 +37,9 @@ sudo systemctl enable --now fabric-agent.service
 
 echo "==> Tailscale Funnel :$FUNNEL_PORT -> 127.0.0.1:8080"
 sudo tailscale funnel --bg --https="$FUNNEL_PORT" http://127.0.0.1:8080
-url=$(sudo tailscale funnel status | grep -oE "https://[^ ]+:$FUNNEL_PORT" | head -n 1 || true)
+# Funnel status prints port 443 without ":443".
+suffix=":$FUNNEL_PORT"; [ "$FUNNEL_PORT" = 443 ] && suffix=""
+url=$(sudo tailscale funnel status | grep -oE "^https://[^ :]+$suffix \(Funnel on\)" | head -n 1 | cut -d' ' -f1 || true)
 
 echo
 echo "fabric-agent: $(systemctl is-active fabric-agent)"
