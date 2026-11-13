@@ -218,6 +218,12 @@ func detectError(ytOutput io.Reader) error {
 // the exact tracks. The second matches regional variants only (en-GB,
 // es-419): yt-dlp matches --sub-langs case-insensitively, and the (?-i:...)
 // group makes the region part case-sensitive, so en-af does not match.
+//
+// The third asks for the video's original-language track (<language>-orig,
+// one per video). YouTube answers HTTP 429 to auto-translated tracks even on
+// the first request, and on a video in another language the requested track
+// is one, as is the track yt-dlp picks by itself. The original track can be
+// in another language than the request, which the reader can translate.
 func ytDlpLangSteps(language string, userArgs []string) [][]string {
 	userSetsLangs := slices.ContainsFunc(userArgs, func(a string) bool {
 		return strings.HasPrefix(a, "--sub-lang")
@@ -236,6 +242,7 @@ func ytDlpLangSteps(language string, userArgs []string) [][]string {
 	return [][]string{
 		{"--sub-langs", exact},
 		{"--sub-langs", base + `-(?-i:[A-Z]{2}|\d{3})`},
+		{"--sub-langs", ".*-orig"},
 		nil,
 	}
 }
