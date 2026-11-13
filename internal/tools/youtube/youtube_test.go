@@ -172,18 +172,19 @@ func TestYtDlpLangSteps(t *testing.T) {
 	// answers HTTP 429 after the first one or two. Each step is one yt-dlp
 	// run; "" is a run without --sub-langs.
 	const enRegional = `--sub-langs en-(?-i:[A-Z]{2}|\d{3})`
+	const original = `--sub-langs .*-orig`
 	tests := []struct {
 		name     string
 		language string
 		userArgs []string
 		want     []string
 	}{
-		{"no user flag", "en", nil, []string{"--sub-langs en", enRegional, ""}},
+		{"no user flag", "en", nil, []string{"--sub-langs en", enRegional, original, ""}},
 		{"user --sub-lang", "en", []string{"--sub-lang", "en-orig"}, []string{"", ""}},
 		{"user --sub-langs=", "en", []string{"--sub-langs=en-orig"}, []string{"", ""}},
 		{"no language", "", nil, []string{"", ""}},
-		{"one letter language", "e", nil, []string{"--sub-langs e", `--sub-langs e-(?-i:[A-Z]{2}|\d{3})`, ""}},
-		{"regional language", "en-GB", nil, []string{"--sub-langs en-GB,en", enRegional, ""}},
+		{"one letter language", "e", nil, []string{"--sub-langs e", `--sub-langs e-(?-i:[A-Z]{2}|\d{3})`, original, ""}},
+		{"regional language", "en-GB", nil, []string{"--sub-langs en-GB,en", enRegional, original, ""}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -202,6 +203,8 @@ func TestYtDlpLangSteps(t *testing.T) {
 // is $FAKE_TRACK. It logs each --sub-langs value (or "-" for none) to
 // $FAKE_LOG and writes a VTT file only when the value would match the track
 // in real yt-dlp: the exact name, the regional pattern, or no filter at all.
+// For de-orig it acts like a German video on YouTube: "en" and yt-dlp's own
+// pick are auto-translations, which YouTube answers with HTTP 429.
 const fakeYtDlpTracks = `#!/bin/sh
 langs=-
 while [ $# -gt 0 ]; do
@@ -213,6 +216,10 @@ while [ $# -gt 0 ]; do
 done
 echo "$langs" >> "$FAKE_LOG"
 case "$FAKE_TRACK:$langs" in
+de-orig:'.*-orig')
+	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack %s\n' "$FAKE_TRACK" > "$(dirname "$out")/video.$FAKE_TRACK.vtt" ;;
+de-orig:en | de-orig:-)
+	echo "ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests" ;;
 en:en | en-GB:*'[A-Z]'* | *:-)
 	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack %s\n' "$FAKE_TRACK" > "$(dirname "$out")/video.$FAKE_TRACK.vtt" ;;
 *)
@@ -235,6 +242,8 @@ func TestGrabTranscriptLanguageSteps(t *testing.T) {
 		{"en", "en"},
 		// The exact run finds nothing, so the regional run follows.
 		{"en-GB", `en | en-(?-i:[A-Z]{2}|\d{3})`},
+		// "en" is a refused auto-translation, so the original track follows.
+		{"de-orig", `en | en-(?-i:[A-Z]{2}|\d{3}) | .*-orig`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.track, func(t *testing.T) {
