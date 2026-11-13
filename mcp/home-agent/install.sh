@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Installs the Fabric transcript agent + a Cloudflare tunnel as systemd services on Arch Linux.
+# Installs the Fabric transcript agent as a systemd service on Arch Linux and publishes it with
+# Tailscale Funnel at a fixed https://<machine>.<tailnet>.ts.net:8443 address.
 # Run as the regular user that should own the agent (sudo is used where needed):
 #   FABRIC_API_KEY=<key from Vercel's HOME_AGENT_API_KEY> ./install.sh
-# Permanent hostname (recommended): create a tunnel in Cloudflare Zero Trust, add a public hostname
-# pointing at http://localhost:8080, and pass its token:
-#   CLOUDFLARE_TUNNEL_TOKEN=<token> FABRIC_API_KEY=<key> ./install.sh
-# Without a token, a quick tunnel is used (random *.trycloudflare.com URL that changes on restart).
+# Prerequisites: tailscaled is running and logged in, and the tailnet policy grants this machine the
+# `funnel` node attribute. Funnel accepts ports 443, 8443 and 10000; set FUNNEL_PORT to change 8443.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_DIR=$(cd "$HERE/../.." && pwd)
 AGENT_USER=${AGENT_USER:-$USER}
 ENV_FILE=/etc/fabric-agent.env
+FUNNEL_PORT=${FUNNEL_PORT:-8443}
 
 echo "==> packages"
-sudo pacman -S --needed --noconfirm go yt-dlp deno cloudflared
+sudo pacman -S --needed --noconfirm go yt-dlp deno
 
 echo "==> build fabric from $REPO_DIR"
 (cd "$REPO_DIR" && go build -o /tmp/fabric-build ./cmd/fabric)
@@ -35,33 +35,16 @@ sed "s/__USER__/$AGENT_USER/g; s#__HOME__#$HOME#g" "$HERE/fabric-agent.service" 
 sudo systemctl daemon-reload
 sudo systemctl enable --now fabric-agent.service
 
-if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
-  echo "==> named tunnel (cloudflared.service, token from Cloudflare Zero Trust)"
-  sudo systemctl disable --now cloudflared-quick.service 2>/dev/null || true
-  sudo cloudflared service install "$CLOUDFLARE_TUNNEL_TOKEN"
-  sudo systemctl enable --now cloudflared.service
-  tunnel_unit=cloudflared
-  url="https://<the public hostname you configured for the tunnel>"
-else
-  echo "==> quick tunnel (cloudflared-quick.service)"
-  sudo install -m 644 "$HERE/cloudflared-quick.service" /etc/systemd/system/cloudflared-quick.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now cloudflared-quick.service
-  tunnel_unit=cloudflared-quick
-  echo "==> waiting for the tunnel URL"
-  url=""
-  for _ in $(seq 1 30); do
-    url=$(journalctl -u cloudflared-quick --no-pager -o cat 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -n 1 || true)
-    [ -n "$url" ] && break
-    sleep 1
-  done
-fi
+echo "==> Tailscale Funnel :$FUNNEL_PORT -> 127.0.0.1:8080"
+sudo tailscale funnel --bg --https="$FUNNEL_PORT" http://127.0.0.1:8080
+# Funnel status prints port 443 without ":443".
+suffix=":$FUNNEL_PORT"; [ "$FUNNEL_PORT" = 443 ] && suffix=""
+url=$(sudo tailscale funnel status | grep -oE "^https://[^ :]+$suffix \(Funnel on\)" | head -n 1 | cut -d' ' -f1 || true)
 
 echo
 echo "fabric-agent: $(systemctl is-active fabric-agent)"
-echo "$tunnel_unit: $(systemctl is-active "$tunnel_unit")"
-echo "HOME_AGENT_URL:     ${url:-<not found yet: journalctl -u cloudflared-quick -f>}"
+echo "HOME_AGENT_URL:     ${url:-<not found: sudo tailscale funnel status>}"
 echo "HOME_AGENT_API_KEY: $(sudo sed -n 's/^FABRIC_API_KEY=//p' "$ENV_FILE")"
 echo
 echo "Put HOME_AGENT_URL (and the key, if it was generated here) into the Vercel project and redeploy."
-[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] || echo "Note: a quick tunnel gets a new URL on every restart; see README.md for a named tunnel."
+echo "The address is fixed: it changes only if this machine is renamed or moves to another tailnet."
