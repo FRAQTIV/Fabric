@@ -1,6 +1,8 @@
 package youtube
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -164,28 +166,95 @@ func TestExtractAndValidateVideoId(t *testing.T) {
 	}
 }
 
-func TestYtDlpLangArgs(t *testing.T) {
+func TestYtDlpLangSteps(t *testing.T) {
+	// No "en.*": YouTube names auto-translated tracks en-<source> (en-af,
+	// en-ja, ...), so a wildcard asks for dozens of tracks and YouTube
+	// answers HTTP 429 after the first one or two. Each step is one yt-dlp
+	// run; "" is a run without --sub-langs.
+	const enRegional = `--sub-langs en-(?-i:[A-Z]{2}|\d{3})`
 	tests := []struct {
 		name     string
 		language string
 		userArgs []string
 		want     []string
 	}{
-		// No "en.*": YouTube names auto-translated tracks en-<source> (en-af,
-		// en-ja, ...), so a wildcard asks for dozens of tracks and YouTube
-		// answers HTTP 429 after the first one or two.
-		{"no user flag", "en", nil, []string{"--sub-langs", "en"}},
-		{"user --sub-lang", "en", []string{"--sub-lang", "en-orig"}, nil},
-		{"user --sub-langs=", "en", []string{"--sub-langs=en-orig"}, nil},
-		{"no language", "", nil, nil},
-		{"one letter language", "e", nil, []string{"--sub-langs", "e"}},
-		{"regional language", "en-GB", nil, []string{"--sub-langs", "en-GB,en"}},
+		{"no user flag", "en", nil, []string{"--sub-langs en", enRegional, ""}},
+		{"user --sub-lang", "en", []string{"--sub-lang", "en-orig"}, []string{"", ""}},
+		{"user --sub-langs=", "en", []string{"--sub-langs=en-orig"}, []string{"", ""}},
+		{"no language", "", nil, []string{"", ""}},
+		{"one letter language", "e", nil, []string{"--sub-langs e", `--sub-langs e-(?-i:[A-Z]{2}|\d{3})`, ""}},
+		{"regional language", "en-GB", nil, []string{"--sub-langs en-GB,en", enRegional, ""}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ytDlpLangArgs(tt.language, tt.userArgs)
-			if strings.Join(got, " ") != strings.Join(tt.want, " ") {
-				t.Errorf("ytDlpLangArgs(%q, %v) = %v, want %v", tt.language, tt.userArgs, got, tt.want)
+			var got []string
+			for _, step := range ytDlpLangSteps(tt.language, tt.userArgs) {
+				got = append(got, strings.Join(step, " "))
+			}
+			if strings.Join(got, " | ") != strings.Join(tt.want, " | ") {
+				t.Errorf("ytDlpLangSteps(%q, %v) = %q, want %q", tt.language, tt.userArgs, got, tt.want)
+			}
+		})
+	}
+}
+
+// fakeYtDlpTracks is a yt-dlp stand-in for a video whose only caption track
+// is $FAKE_TRACK. It logs each --sub-langs value (or "-" for none) to
+// $FAKE_LOG and writes a VTT file only when the value would match the track
+// in real yt-dlp: the exact name, the regional pattern, or no filter at all.
+const fakeYtDlpTracks = `#!/bin/sh
+langs=-
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o) out="$2"; shift ;;
+	--sub-langs) langs="$2"; shift ;;
+	esac
+	shift
+done
+echo "$langs" >> "$FAKE_LOG"
+case "$FAKE_TRACK:$langs" in
+en:en | en-GB:*'[A-Z]'* | *:-)
+	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack %s\n' "$FAKE_TRACK" > "$(dirname "$out")/video.$FAKE_TRACK.vtt" ;;
+*)
+	echo "WARNING: $langs subtitles not available for dQw4w9WgXcQ" ;;
+esac
+`
+
+func TestGrabTranscriptLanguageSteps(t *testing.T) {
+	fakeBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fakeBin, "yt-dlp"), []byte(fakeYtDlpTracks), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	tests := []struct {
+		track     string
+		wantCalls string
+	}{
+		// One yt-dlp run when the exact track exists.
+		{"en", "en"},
+		// The exact run finds nothing, so the regional run follows.
+		{"en-GB", `en | en-(?-i:[A-Z]{2}|\d{3})`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.track, func(t *testing.T) {
+			logFile := filepath.Join(t.TempDir(), "calls")
+			t.Setenv("FAKE_LOG", logFile)
+			t.Setenv("FAKE_TRACK", tt.track)
+
+			got, err := NewYouTube().GrabTranscript("dQw4w9WgXcQ", "en")
+			if err != nil {
+				t.Fatalf("GrabTranscript: %v", err)
+			}
+			if !strings.Contains(got, "track "+tt.track) {
+				t.Errorf("transcript = %q, want the %s track", got, tt.track)
+			}
+			calls, err := os.ReadFile(logFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotCalls := strings.Join(strings.Fields(string(calls)), " | "); gotCalls != tt.wantCalls {
+				t.Errorf("yt-dlp --sub-langs per run = %q, want %q", gotCalls, tt.wantCalls)
 			}
 		})
 	}
