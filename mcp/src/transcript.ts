@@ -69,7 +69,7 @@ function requireAgentUrl(): string {
 function offline(detail: string): AgentOfflineError {
   return new AgentOfflineError(
     `The home transcript agent is unreachable (${detail}). ` +
-      "On the home machine make sure `fabric --serve` and the tunnel (cloudflared) are running.",
+      "On the home machine make sure `fabric --serve` is running and `tailscale funnel status` lists its port.",
   );
 }
 

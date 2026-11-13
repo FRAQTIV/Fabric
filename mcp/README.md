@@ -10,14 +10,14 @@ Claude (chat / Cowork)
 Vercel: mcp/  (this folder)          ──► raw.githubusercontent.com  (Fabric patterns)
    │  POST /youtube/transcript
    ▼
-Cloudflare Tunnel ──► your home machine: `fabric --serve` + yt-dlp
+Tailscale Funnel ──► your home machine: `fabric --serve` + yt-dlp
 ```
 
 Diagrams with real hosts, paths and the request sequence: [`docs/fabric-on-io.md`](../docs/fabric-on-io.md).
 
 Why two pieces: YouTube blocks caption downloads from cloud/datacenter IPs. `yt-dlp` works from a
 residential connection, so transcripts are fetched by the Fabric REST server on **your** machine
-and relayed through a tunnel. The Vercel part is always up; when the home machine is off, pattern
+and published with Tailscale Funnel. The Vercel part is always up; when the home machine is off, pattern
 tools still work and transcript tools return a clear "home agent offline" error.
 
 The server never calls an LLM. It hands Claude the transcript and the pattern's system prompt;
@@ -81,19 +81,18 @@ curl -s -X POST http://127.0.0.1:8080/youtube/transcript \
   -d '{"url":"https://youtu.be/URCUAj1bt28","language":"en"}' | head -c 300
 ```
 
-### Expose it with a Cloudflare Tunnel
+### Expose it with Tailscale Funnel
 
 ```bash
-brew install cloudflared       # or https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/
-cloudflared tunnel --url http://127.0.0.1:8080
+sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8080
+sudo tailscale funnel status      # prints https://<machine>.<tailnet>.ts.net:8443
 ```
 
-The quick tunnel prints a random `https://<words>.trycloudflare.com` URL — that is `HOME_AGENT_URL`.
-Quick tunnels change their URL on every restart; for a stable hostname create a
-[named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/get-started/create-remote-tunnel/)
-on a domain you own and run it as a service so it survives reboots.
+That address is `HOME_AGENT_URL`. It is fixed: `tailscaled` keeps the Funnel across reboots, and the name
+changes only if the machine is renamed or moves to another tailnet. Funnel needs the `funnel` node attribute
+in the tailnet policy and accepts ports 443, 8443 and 10000 only.
 
-Keep both processes running (a `launchd`/systemd service, or a terminal multiplexer).
+Keep `fabric --serve` running (a `launchd`/systemd service, or a terminal multiplexer).
 
 ## 2. Vercel: the MCP server
 
@@ -112,7 +111,7 @@ Two project settings matter:
 
 | Variable | Value |
 | --- | --- |
-| `HOME_AGENT_URL` | the tunnel URL, e.g. `https://xyz.trycloudflare.com` |
+| `HOME_AGENT_URL` | the Funnel address, e.g. `https://io.TAILNET.ts.net:8443` |
 | `HOME_AGENT_API_KEY` | the same key the home agent runs with (`FABRIC_API_KEY` / `--api-key`) |
 | `MCP_PATH_TOKEN` | a long random secret, e.g. `openssl rand -hex 24` — becomes part of the connector URL |
 | `PATTERNS_BASE_URL` | optional; default `https://raw.githubusercontent.com/FRAQTIV/Fabric/main` |
@@ -171,12 +170,13 @@ npm test                                               # node:test suite (protoc
 
 `vercel dev` from the repository root runs the service through the real `vercel.json` routing instead.
 
-Point `HOME_AGENT_URL` at a real tunnel (and set `HOME_AGENT_API_KEY`) to test real transcripts.
+Point `HOME_AGENT_URL` at a real Funnel address (and set `HOME_AGENT_API_KEY`) to test real transcripts.
 
 ## Troubleshooting
 
-- **"home agent is unreachable"** — `fabric --serve` or `cloudflared` is not running, or the quick-tunnel URL
-  changed after a restart (update `HOME_AGENT_URL` on Vercel). Run the `health` tool to see which.
+- **"home agent is unreachable"** — `fabric --serve` is not running, the Funnel is off (`sudo tailscale funnel
+  status`), or the machine's `ts.net` name changed (update `HOME_AGENT_URL` on Vercel). Run the `health` tool
+  to see which.
 - **"API key rejected"** — `HOME_AGENT_API_KEY` on Vercel ≠ `--api-key` on the home machine.
 - **"yt-dlp not found in PATH"** — install yt-dlp on the home machine; make sure the `fabric` process can see it.
 - **"Sign in to confirm you're not a bot"** — YouTube is challenging your IP; restart the agent with

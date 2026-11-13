@@ -2,6 +2,8 @@
 
 Reference for humans and for AI sessions running on `io` (Arch Linux). Everything here is the
 actual deployment: real hostnames, real paths, real unit names. Secrets are named, never written out.
+`TAILNET` stands for the tailnet part of `io`'s Funnel name; `sudo tailscale funnel status` on `io`
+prints the full address.
 
 Color legend used in every diagram:
 
@@ -9,7 +11,7 @@ Color legend used in every diagram:
 | --- | --- |
 | Blue | runs on Vercel (cloud) |
 | Green | runs on `io` |
-| Orange | external service (Cloudflare edge, YouTube, GitHub, Claude/ChatGPT) |
+| Orange | external service (Tailscale Funnel relay, YouTube, GitHub, Claude/ChatGPT) |
 | Red | secret — value lives only in the named store |
 | Grey | file on disk |
 
@@ -41,12 +43,12 @@ flowchart LR
     G2["scripts/pattern_descriptions/<br/>pattern_descriptions.json"]:::file
   end
 
-  subgraph cfe["Cloudflare edge"]
-    T1["quick tunnel hostname<br/>RANDOM.trycloudflare.com"]:::ext
+  subgraph tse["Tailscale Funnel relay"]
+    T1["io.TAILNET.ts.net:8443<br/>public HTTPS, fixed name"]:::ext
   end
 
   subgraph io["io — Arch Linux, residential IP"]
-    I1["cloudflared-quick.service"]:::io
+    I1["tailscaled.service<br/>Funnel :8443 → 127.0.0.1:8080"]:::io
     I2["fabric-agent.service<br/>fabric --serve --address 127.0.0.1:8080"]:::io
     I3["yt-dlp + deno"]:::io
     I4[("/etc/fabric-agent.env<br/>FABRIC_API_KEY")]:::secret
@@ -62,8 +64,8 @@ flowchart LR
   V1 -- "GET (pattern index)" --> G2
   V1 -- "GET metadata" --> N
   V1 -- "POST /youtube/transcript<br/>header X-API-Key" --> T1
-  T1 -- "outbound tunnel: io dials out,<br/>no inbound port on io" --> I1
-  I1 -- "http://127.0.0.1:8080" --> I2
+  T1 -- "relayed over the tailnet: io dials out,<br/>no inbound port on io" --> I1
+  I1 -- "TLS ends here<br/>http://127.0.0.1:8080" --> I2
   I2 -. "compares key" .-> I4
   I2 -- "exec" --> I3
   I3 -- "auto-captions, VTT" --> Y
@@ -77,8 +79,9 @@ flowchart LR
 
 Key facts:
 
-- `io` never accepts inbound connections. `cloudflared` opens an outbound connection to Cloudflare and
-  requests are relayed back down it to `127.0.0.1:8080`.
+- `io` opens no inbound port on the LAN or the router. `tailscaled` keeps an outbound connection to
+  Tailscale; Funnel relays the public TLS stream down it, and `tailscaled` ends TLS with its `ts.net`
+  certificate and proxies to `127.0.0.1:8080`.
 - Access control is two keys: the path token on the Vercel URL, and `X-API-Key` on the hop into `io`.
 - No LLM runs anywhere in this chain. The client model (Claude or ChatGPT) applies the pattern.
 
@@ -96,12 +99,12 @@ flowchart TB
 
   subgraph systemd["systemd (enabled, multi-user.target)"]
     U1["fabric-agent.service<br/>User=AGENT_USER<br/>Restart=always, 5 s<br/>PrivateTmp=yes"]:::io
-    U2["cloudflared-quick.service<br/>DynamicUser=yes<br/>Restart=always, 5 s"]:::io
+    U2["tailscaled.service<br/>(tailscale package)"]:::io
   end
 
   subgraph bins["Binaries"]
     B1["/usr/local/bin/fabric<br/>built from ~/Fabric (go build ./cmd/fabric)"]:::file
-    B2["/usr/bin/cloudflared  (pacman)"]:::file
+    B2["/usr/sbin/tailscaled, /usr/bin/tailscale  (pacman)"]:::file
     B3["/usr/bin/yt-dlp  (pacman)"]:::file
     B4["/usr/bin/deno  (pacman, JS runtime for yt-dlp)"]:::file
   end
@@ -110,19 +113,19 @@ flowchart TB
     F1[("/etc/fabric-agent.env<br/>FABRIC_API_KEY=…<br/>FABRIC_EXTRA_ARGS=…  (optional)")]:::secret
     F2["~/.config/fabric/.env<br/>(AGENT_USER home; may be empty)"]:::file
     F3["/etc/systemd/system/fabric-agent.service"]:::file
-    F4["/etc/systemd/system/cloudflared-quick.service"]:::file
+    F4["/var/lib/tailscale/tailscaled.state<br/>(holds the Funnel :8443 handler)"]:::file
     F5["~/Fabric  — git clone of FRAQTIV/Fabric<br/>~/Fabric/mcp/home-agent/install.sh"]:::file
   end
 
   subgraph run["Runtime"]
     R1["TCP 127.0.0.1:8080  (gin REST server)"]:::tmp
     R2["/tmp/fabric-youtube-VIDEOID/  (private tmp,<br/>VTT written then deleted per request)"]:::tmp
-    R3["journald: journalctl -u fabric-agent<br/>journalctl -u cloudflared-quick  (holds the tunnel URL)"]:::tmp
+    R3["journald: journalctl -u fabric-agent<br/>journalctl -u tailscaled"]:::tmp
   end
 
   F5 -- "install.sh writes" --> F1
   F5 -- "install.sh installs" --> F3
-  F5 -- "install.sh installs" --> F4
+  F5 -- "install.sh: tailscale funnel --bg" --> F4
   F5 -- "go build" --> B1
   F3 --> U1
   F4 --> U2
@@ -133,8 +136,8 @@ flowchart TB
   B1 -- "exec per request" --> B3
   B3 -. "uses" .-> B4
   B3 -- "writes" --> R2
-  U2 -- "ExecStart --url http://127.0.0.1:8080" --> B2
-  B2 -- "proxies to" --> R1
+  U2 -- "ExecStart" --> B2
+  B2 -- "Funnel :8443 proxies to" --> R1
   U1 --> R3
   U2 --> R3
 
@@ -148,7 +151,7 @@ flowchart TB
 | --- | --- | --- |
 | `/etc/fabric-agent.env` | root, mode 600 | `FABRIC_API_KEY` (must equal Vercel's `HOME_AGENT_API_KEY`); optional `FABRIC_EXTRA_ARGS` |
 | `/etc/systemd/system/fabric-agent.service` | root | runs `fabric --serve --address 127.0.0.1:8080 $FABRIC_EXTRA_ARGS` |
-| `/etc/systemd/system/cloudflared-quick.service` | root | runs `cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080` |
+| `/var/lib/tailscale/tailscaled.state` | root | `tailscaled` state, including the Funnel handler `https://io.TAILNET.ts.net:8443 → http://127.0.0.1:8080` |
 | `/usr/local/bin/fabric` | root | Fabric binary built from the repo clone |
 | `~/.config/fabric/.env` | AGENT_USER | Fabric's own config; present but empty is fine (no vendors needed) |
 | `~/Fabric` | AGENT_USER | repo clone; `git pull` then re-run `install.sh` to upgrade |
@@ -163,7 +166,7 @@ sequenceDiagram
   participant V as Vercel mcp service
   participant G as GitHub raw
   participant N as noembed.com
-  participant T as Cloudflare tunnel
+  participant T as Tailscale Funnel
   participant F as fabric --serve on io
   participant Y as yt-dlp → YouTube
 
@@ -178,9 +181,9 @@ sequenceDiagram
     N-->>V: JSON
     rect rgb(220, 252, 231)
       V->>T: POST /youtube/transcript {url, language:"en"} + X-API-Key
-      T->>F: relayed to 127.0.0.1:8080
+      T->>F: tailscaled ends TLS, proxies to 127.0.0.1:8080
       F->>F: APIKeyMiddleware: sha256 compare, 401 on mismatch
-      F->>Y: yt-dlp --write-auto-subs --skip-download --sub-format vtt --sub-langs en,en.*
+      F->>Y: yt-dlp --write-auto-subs --skip-download --sub-format vtt --sub-langs en
       Y-->>F: VTT into /tmp/fabric-youtube-URCUAj1bt28 (deleted after read)
       F-->>T: 200 {transcript, videoId, title, description}
     end
@@ -199,19 +202,20 @@ Tools the Vercel service exposes: `extract_wisdom(url, language?)`, `apply_patte
 `get_transcript(url, language?, timestamps?)`, `list_patterns(query?)`, `get_pattern(name)`, `health()`.
 Only the first three reach `io`.
 
-## 4. Service and tunnel lifecycle (state)
+## 4. Service and Funnel lifecycle (state)
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Installed: ./install.sh  (pacman, go build, units written)
-  Installed --> Active: systemctl enable --now fabric-agent cloudflared-quick
-  Active --> URLAssigned: cloudflared logs its RANDOM.trycloudflare.com URL
-  URLAssigned --> Wired: HOME_AGENT_URL set in Vercel + Redeploy
+  [*] --> Installed: ./install.sh  (pacman, go build, unit written, Funnel set)
+  Installed --> Active: fabric-agent active, Funnel 8443 on
+  Active --> Wired: HOME_AGENT_URL = https://io.TAILNET.ts.net:8443 in Vercel + Redeploy
   Wired --> Healthy: health tool reports home agent ok
-  Healthy --> Stale: io reboot or cloudflared-quick restart (new URL)
-  Stale --> URLAssigned: read URL from journalctl -u cloudflared-quick
   Healthy --> Down: fabric-agent exits
   Down --> Healthy: systemd restarts it after 5 s
+  Healthy --> NoFunnel: funnel node attribute lost (tailnet move or policy edit)
+  NoFunnel --> Healthy: funnel attribute granted again in the tailnet policy
+  Healthy --> Renamed: io renamed or moved to another tailnet (new ts.net name)
+  Renamed --> Wired: HOME_AGENT_URL updated in Vercel + Redeploy
   Healthy --> KeyMismatch: /etc/fabric-agent.env edited
   KeyMismatch --> Healthy: HOME_AGENT_API_KEY in Vercel updated + Redeploy
 
@@ -219,13 +223,14 @@ stateDiagram-v2
   classDef warn fill:#fef9c3,stroke:#a16207,color:#713f12
   classDef bad fill:#fee2e2,stroke:#b91c1c,color:#7f1d1d
   class Healthy,Wired,Active ok
-  class Installed,URLAssigned warn
-  class Stale,Down,KeyMismatch bad
+  class Installed warn
+  class Down,NoFunnel,Renamed,KeyMismatch bad
 ```
 
-The quick tunnel is the one piece of state that is **not** durable: its hostname is reassigned on
-every `cloudflared` start. `fraqtiv.com` cannot host a permanent name because its DNS is at Vercel, not
-Cloudflare; a permanent name needs a Cloudflare-hosted domain (see `mcp/home-agent/README.md`).
+The Funnel address is durable: `tailscaled` keeps the handler in its state across reboots and restarts,
+and the `ts.net` name changes only if `io` is renamed or moves to another tailnet. A tailnet move also
+drops the `funnel` node attribute, so the Funnel stays off until the attribute is granted again in the
+new tailnet's policy. That happened on 2026-11-01.
 
 ## 5. Troubleshooting — start from what `health` says
 
@@ -237,10 +242,10 @@ flowchart TD
   S --> B{"home agent: reachable<br/>but API key rejected"}
   S --> C{"transcript error"}
 
-  A --> A1["on io: systemctl status<br/>fabric-agent cloudflared-quick"]:::io
-  A1 -->|both active| A2["journalctl -u cloudflared-quick -o cat<br/>#124; grep trycloudflare #124; tail -1"]:::io
-  A2 --> A3["Vercel → HOME_AGENT_URL = that URL<br/>→ Redeploy"]:::cloud
-  A1 -->|inactive| A4["sudo systemctl restart fabric-agent cloudflared-quick<br/>journalctl -u fabric-agent -n 50"]:::io
+  A --> A1["on io: systemctl status fabric-agent tailscaled<br/>sudo tailscale funnel status"]:::io
+  A1 -->|"8443 not listed"| A2["sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8080<br/>if refused: grant the funnel node attribute"]:::io
+  A1 -->|"name differs from HOME_AGENT_URL"| A3["Vercel → HOME_AGENT_URL = the new address<br/>→ Redeploy"]:::cloud
+  A1 -->|"fabric-agent inactive"| A4["sudo systemctl restart fabric-agent<br/>journalctl -u fabric-agent -n 50"]:::io
 
   B --> B1["/etc/fabric-agent.env FABRIC_API_KEY<br/>must equal Vercel HOME_AGENT_API_KEY"]:::secret
   B1 --> B2["fix one side, then<br/>restart fabric-agent or Redeploy"]:::cloud
@@ -262,11 +267,11 @@ flowchart TD
 
 ```bash
 # status and logs
-systemctl status fabric-agent cloudflared-quick
+systemctl status fabric-agent tailscaled
 journalctl -u fabric-agent -f
-journalctl -u cloudflared-quick -o cat | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1   # current tunnel URL
+sudo tailscale funnel status   # public address: https://io.TAILNET.ts.net:8443 → http://127.0.0.1:8080
 
-# local proof the agent works (no tunnel involved)
+# local proof the agent works (no Funnel involved)
 curl -s -X POST http://127.0.0.1:8080/youtube/transcript \
   -H "X-API-Key: $(sudo sed -n 's/^FABRIC_API_KEY=//p' /etc/fabric-agent.env)" \
   -H 'Content-Type: application/json' \
@@ -279,7 +284,7 @@ cd ~/Fabric && git pull && cd mcp/home-agent && FABRIC_API_KEY="$(sudo sed -n 's
 sudo nano /etc/fabric-agent.env && sudo systemctl restart fabric-agent
 ```
 
-Do not: open port 8080 to the LAN or internet (the tunnel is the only intended path), put the API key
+Do not: open port 8080 to the LAN or internet (Funnel is the only intended path), put the API key
 in the repo, or run `fabric --serve` without `--address 127.0.0.1:8080`.
 
 Related: `mcp/README.md` (the Vercel service), `mcp/home-agent/README.md` (runbook and install script),
