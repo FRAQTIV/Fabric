@@ -231,7 +231,12 @@ func detectError(ytOutput io.Reader) error {
 // es-419): yt-dlp matches --sub-langs case-insensitively, and the (?-i:...)
 // group makes the region part case-sensitive, so en-af does not match.
 //
-// The third asks for the video's original-language track (<language>-orig,
+// The first step asks for <language>-orig: YouTube's transcription of audio
+// in the requested language. On a video YouTube has dubbed into other
+// languages, the plain <language> track merges machine translations of the
+// dubs, so it garbles names and terms; the -orig track is the real one.
+//
+// The fourth asks for the video's original-language track (<language>-orig,
 // one per video). YouTube answers HTTP 429 to auto-translated tracks even on
 // the first request, and on a video in another language the requested track
 // is one, as is the track yt-dlp picks by itself. The original track can be
@@ -252,6 +257,7 @@ func ytDlpLangSteps(language string, userArgs []string) [][]string {
 		exact += "," + base
 	}
 	return [][]string{
+		{"--sub-langs", base + "-orig"},
 		{"--sub-langs", exact},
 		{"--sub-langs", base + `-(?-i:[A-Z]{2}|\d{3})`},
 		{"--sub-langs", ".*-orig"},
@@ -810,8 +816,9 @@ func vttLanguage(file string) string {
 }
 
 // pickCaptionFile chooses the caption file for the requested language, best
-// first: the exact language, its base language (en for en-US), the base
-// language's original track (en-orig), a regional variant (en-GB, es-419),
+// first: the language's original track (en-orig, transcribed from audio in
+// that language), the exact language, its base language (en for en-US), a
+// regional variant (en-GB, es-419),
 // and last any other original-language track (de-orig), which is what the
 // speakers said even when it is not the requested language. A track in any
 // other language is a YouTube machine translation and is never chosen: it
@@ -837,9 +844,9 @@ func pickCaptionFile(files []string, language string) (string, bool) {
 	// the older yt-dlp name of an English translation from Afrikaans.
 	regional := regexp.MustCompile(`^(?i:` + regexp.QuoteMeta(base) + `)-([A-Z]{2}|\d{3})$`)
 	tests := []func(string) bool{
+		func(l string) bool { return strings.EqualFold(l, base+"-orig") },
 		func(l string) bool { return strings.EqualFold(l, lang) },
 		func(l string) bool { return strings.EqualFold(l, base) },
-		func(l string) bool { return strings.EqualFold(l, base+"-orig") },
 		func(l string) bool { return regional.MatchString(l) },
 		func(l string) bool { return strings.HasSuffix(strings.ToLower(l), "-orig") },
 	}
