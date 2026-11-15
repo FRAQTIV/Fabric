@@ -40,7 +40,6 @@ import (
 )
 
 var timestampRegex *regexp.Regexp
-var languageFileRegex *regexp.Regexp
 var videoPatternRegex *regexp.Regexp
 var playlistPatternRegex *regexp.Regexp
 var vttTagRegex *regexp.Regexp
@@ -53,7 +52,6 @@ func init() {
 	// A cue sequence number, or a timestamp such as "01:02" or "00:00:01.234".
 	timestampRegex = regexp.MustCompile(`^\d+$|^\d{1,2}:\d{2}(:\d{2})?(\.\d{3})?$`)
 	// Language-tagged VTT file names such as .en.vtt or .pt-BR.vtt.
-	languageFileRegex = regexp.MustCompile(`\.[a-z]{2}(-[A-Z]{2})?\.vtt$`)
 	// Captures the video ID from watch, live, shorts, embed, v, and youtu.be URLs.
 	videoPatternRegex = regexp.MustCompile(`(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:live\/|[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|(?:s(?:horts)\/)|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]*)`)
 	playlistPatternRegex = regexp.MustCompile(`[?&]list=([a-zA-Z0-9_-]+)`)
@@ -793,24 +791,66 @@ func (o *YouTube) findVTTFilesWithFallback(dir, requestedLanguage string) ([]str
 	if len(vttFiles) == 0 {
 		return nil, errors.New(i18n.T("youtube_no_vtt_files_found"))
 	}
+	slices.Sort(vttFiles)
 
-	if requestedLanguage == "" {
-		return []string{vttFiles[0]}, nil
+	if file, ok := pickCaptionFile(vttFiles, requestedLanguage); ok {
+		return []string{file}, nil
 	}
+	return nil, errors.New(i18n.T("youtube_no_vtt_files_found"))
+}
 
-	for _, file := range vttFiles {
-		if strings.Contains(file, "."+requestedLanguage+".vtt") {
-			return []string{file}, nil
+// vttLanguage returns the language code yt-dlp put in a caption file name,
+// such as "en" in "title.en.vtt" or "de-orig" in "title.de-orig.vtt".
+func vttLanguage(file string) string {
+	name := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		return name[i+1:]
+	}
+	return ""
+}
+
+// pickCaptionFile chooses the caption file for the requested language, best
+// first: the exact language, its base language (en for en-US), the base
+// language's original track (en-orig), a regional variant (en-GB, es-419),
+// and last any other original-language track (de-orig), which is what the
+// speakers said even when it is not the requested language. A track in any
+// other language is a YouTube machine translation and is never chosen: it
+// garbles names and terms, and returning it as the transcript misleads.
+func pickCaptionFile(files []string, language string) (string, bool) {
+	if len(files) == 0 {
+		return "", false
+	}
+	if language == "" {
+		for _, f := range files {
+			if strings.HasSuffix(vttLanguage(f), "-orig") {
+				return f, true
+			}
+		}
+		return files[0], true
+	}
+	lang := strings.ToLower(language)
+	base := lang
+	if i := strings.IndexAny(lang, "-_"); i > 0 {
+		base = lang[:i]
+	}
+	// The region part is case-sensitive: en-GB is a region, while en-af is
+	// the older yt-dlp name of an English translation from Afrikaans.
+	regional := regexp.MustCompile(`^(?i:` + regexp.QuoteMeta(base) + `)-([A-Z]{2}|\d{3})$`)
+	tests := []func(string) bool{
+		func(l string) bool { return strings.EqualFold(l, lang) },
+		func(l string) bool { return strings.EqualFold(l, base) },
+		func(l string) bool { return strings.EqualFold(l, base+"-orig") },
+		func(l string) bool { return regional.MatchString(l) },
+		func(l string) bool { return strings.HasSuffix(strings.ToLower(l), "-orig") },
+	}
+	for _, match := range tests {
+		for _, f := range files {
+			if match(vttLanguage(f)) {
+				return f, true
+			}
 		}
 	}
-
-	for _, file := range vttFiles {
-		if languageFileRegex.MatchString(file) {
-			return []string{file}, nil
-		}
-	}
-
-	return []string{vttFiles[0]}, nil
+	return "", false
 }
 
 type VideoMeta struct {

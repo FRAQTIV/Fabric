@@ -368,3 +368,73 @@ func TestGrabTranscriptKeepsDownloadDespite429Warning(t *testing.T) {
 		t.Errorf("yt-dlp runs = %d, want 1: each extra run is more requests to YouTube", n)
 	}
 }
+
+func TestPickCaptionFile(t *testing.T) {
+	tests := []struct {
+		files    []string
+		language string
+		want     string // "" means no acceptable file
+	}{
+		{[]string{"v.ar.vtt", "v.en.vtt"}, "en", "v.en.vtt"},
+		{[]string{"v.bn.vtt", "v.en-orig.vtt"}, "en", "v.en-orig.vtt"},
+		{[]string{"v.en-GB.vtt", "v.fr.vtt"}, "en", "v.en-GB.vtt"},
+		{[]string{"v.es-419.vtt"}, "es", "v.es-419.vtt"},
+		{[]string{"v.en.vtt"}, "en-US", "v.en.vtt"},
+		// A video in another language: its original track beats nothing.
+		{[]string{"v.ar.vtt", "v.de-orig.vtt"}, "en", "v.de-orig.vtt"},
+		// Only machine translations into other languages: refuse them.
+		{[]string{"v.ar.vtt", "v.bn.vtt"}, "en", ""},
+		// en-orig is not a regional variant of en, and en-af is a translation.
+		{[]string{"v.en-af.vtt"}, "en", ""},
+	}
+	for _, tt := range tests {
+		got, ok := pickCaptionFile(tt.files, tt.language)
+		if !ok {
+			got = ""
+		}
+		if got != tt.want {
+			t.Errorf("pickCaptionFile(%v, %q) = %q, want %q", tt.files, tt.language, got, tt.want)
+		}
+	}
+}
+
+// fakeYtDlpStrayTranslation acts like a run where YouTube refuses the English
+// track but a machine translation (Bengali) still downloads, and only the
+// original-language run gets the real English captions.
+const fakeYtDlpStrayTranslation = `#!/bin/sh
+langs=-
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o) out="$2"; shift ;;
+	--sub-langs) langs="$2"; shift ;;
+	esac
+	shift
+done
+dir="$(dirname "$out")"
+case "$langs" in
+'.*-orig')
+	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nreal english\n' > "$dir/video.en-orig.vtt" ;;
+*)
+	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nbengali translation\n' > "$dir/video.bn.vtt"
+	echo "ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests" ;;
+esac
+`
+
+func TestGrabTranscriptNeverReturnsAMachineTranslation(t *testing.T) {
+	fakeBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fakeBin, "yt-dlp"), []byte(fakeYtDlpStrayTranslation), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := rateLimitRetryDelay
+	rateLimitRetryDelay = 0
+	t.Cleanup(func() { rateLimitRetryDelay = saved })
+
+	got, err := NewYouTube().GrabTranscript("dQw4w9WgXcQ", "en")
+	if err != nil {
+		t.Fatalf("GrabTranscript: %v", err)
+	}
+	if !strings.Contains(got, "real english") || strings.Contains(got, "bengali") {
+		t.Errorf("transcript = %q, want the English original track", got)
+	}
+}
