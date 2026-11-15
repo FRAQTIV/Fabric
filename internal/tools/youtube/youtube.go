@@ -197,7 +197,7 @@ func detectError(ytOutput io.Reader) error {
 	for scanner.Scan() {
 		curLine := scanner.Text()
 		debuglog.Debug(debuglog.Trace, "%s\n", curLine)
-		for _, key := range []string{"429", "Too Many Requests"} {
+		for _, key := range []string{"HTTP Error 429", "Too Many Requests"} {
 			if strings.Contains(curLine, key) {
 				return rateLimitError{i18n.T("youtube_rate_limit_exceeded")}
 			}
@@ -294,20 +294,24 @@ func (o *YouTube) tryMethodYtDlpInternal(videoId string, language string, additi
 			return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("youtube_invalid_ytdlp_arguments"), err))
 		}
 	}
-	// Stop at the first run that leaves a VTT file without an error. A
-	// language that has no track gives only a yt-dlp warning, so an error
-	// check alone would stop after a run that downloaded nothing.
+	// Stop at the first run that leaves a VTT file. A language that has no
+	// track gives only a yt-dlp warning, so an error check alone would stop
+	// after a run that downloaded nothing.
 	runSteps := func(slowArgs []string) (err error) {
 		for _, langArgs := range ytDlpLangSteps(language, userArgs) {
 			args := slices.Concat(baseArgs, langArgs, slowArgs, userArgs, []string{videoURL})
 			cmd := exec.Command("yt-dlp", args...)
 			debuglog.Debug(debuglog.Trace, "yt-dlp %+v\n", cmd.Args)
 			ytOutput, _ := cmd.CombinedOutput()
-			if err = detectError(bytes.NewReader(ytOutput)); err == nil {
-				if _, findErr := o.findVTTFilesWithFallback(tempDir, language); findErr == nil {
-					return nil
-				}
+			// A downloaded caption file is success, whatever yt-dlp printed.
+			// yt-dlp warns about HTTP 429 for other tracks and other player
+			// clients even when the requested track downloads, and treating
+			// that as a failure discarded good transcripts and sent YouTube
+			// more requests for nothing.
+			if _, findErr := o.findVTTFilesWithFallback(tempDir, language); findErr == nil {
+				return nil
 			}
+			err = detectError(bytes.NewReader(ytOutput))
 		}
 		return err
 	}

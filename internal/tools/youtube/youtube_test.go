@@ -328,3 +328,43 @@ func TestGrabTranscriptRetriesSlowerAfterRateLimit(t *testing.T) {
 		t.Errorf("runs with user --sleep-requests = %d, want 1", n)
 	}
 }
+
+// fakeYtDlpWarns429 downloads the requested track but, like real yt-dlp when
+// one of its player clients or an extra caption track is refused, also
+// prints a 429 warning. It logs one line per run to $FAKE_LOG.
+const fakeYtDlpWarns429 = `#!/bin/sh
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o) out="$2"; shift ;;
+	esac
+	shift
+done
+echo run >> "$FAKE_LOG"
+echo "WARNING: [youtube] dQw4w9WgXcQ: Unable to download subtitles for 'en-de': HTTP Error 429: Too Many Requests"
+printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ngot it\n' > "$(dirname "$out")/video.en.vtt"
+`
+
+func TestGrabTranscriptKeepsDownloadDespite429Warning(t *testing.T) {
+	fakeBin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(fakeBin, "yt-dlp"), []byte(fakeYtDlpWarns429), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	saved := rateLimitRetryDelay
+	rateLimitRetryDelay = 0
+	t.Cleanup(func() { rateLimitRetryDelay = saved })
+	logFile := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("FAKE_LOG", logFile)
+
+	got, err := NewYouTube().GrabTranscript("dQw4w9WgXcQ", "en")
+	if err != nil {
+		t.Fatalf("GrabTranscript: %v (the captions were downloaded)", err)
+	}
+	if !strings.Contains(got, "got it") {
+		t.Errorf("transcript = %q", got)
+	}
+	calls, _ := os.ReadFile(logFile)
+	if n := len(strings.Fields(string(calls))); n != 1 {
+		t.Errorf("yt-dlp runs = %d, want 1: each extra run is more requests to YouTube", n)
+	}
+}
