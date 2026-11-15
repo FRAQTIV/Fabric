@@ -9,7 +9,7 @@ import {
   type Transcript,
 } from "./transcript.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -90,7 +90,7 @@ const INSTRUCTIONS = [
   "3. Call apply_patterns once with the URL and the chosen patterns. It fetches the transcript once.",
   "4. Run every returned pattern against the transcript, then write the synthesis the response asks for.",
   "Tell the user which patterns you used and why, in one line.",
-  "If a transcript fetch fails, report the error text as given; it lists each source that was tried.",
+  "If a transcript fetch fails, report the error text as given.",
 ].join("\n");
 
 export function createHandler() {
@@ -102,7 +102,7 @@ export function createHandler() {
           title: "Get YouTube transcript",
           description:
             "Fetch the full transcript (captions) of a YouTube video, plus its title and channel. " +
-            "Tries yt-dlp on the owner's server first, then Bright Data. " +
+            "Transcripts come from yt-dlp on the owner's server. " +
             "To analyze a video, prefer recommend_patterns then apply_patterns.",
           inputSchema: z.object({
             url: urlField,
@@ -289,7 +289,7 @@ export function createHandler() {
         {
           title: "Health check",
           description:
-            "Report whether the pattern library and each transcript source are reachable.",
+            "Report whether the pattern library and the home transcript agent are reachable.",
           inputSchema: z.object({}),
         },
         async () => {
@@ -300,12 +300,6 @@ export function createHandler() {
           } catch (err) {
             lines.push(`patterns: FAILED (${err instanceof Error ? err.message : String(err)})`);
           }
-          lines.push(`transcript sources, in order: ${config.transcriptProviders.join(", ")}`);
-          lines.push(
-            config.brightDataApiKey
-              ? `bright data: configured (dataset ${config.brightDataDatasetId})`
-              : "bright data: not configured (BRIGHTDATA_API_KEY is empty)",
-          );
           if (!config.homeAgentUrl) {
             lines.push("home agent: not configured (HOME_AGENT_URL is empty)");
           } else {

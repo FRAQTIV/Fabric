@@ -26,4 +26,4 @@ Fabric's value is its patterns. A transcript is only the input. Pick the pattern
 
 ## When a transcript fails
 
-`apply_patterns` and `get_transcript` try the owner's server (yt-dlp) and then Bright Data. If both fail, the error lists each source and its reason. Report that text as given, and offer to run the same patterns on a transcript the user pastes. Do not guess at causes such as rate limits beyond what the error says.
+`apply_patterns` and `get_transcript` fetch captions with yt-dlp on the owner's server. If that fails, report the error text as given, and offer to run the same patterns on a transcript the user pastes. Do not guess at causes such as rate limits beyond what the error says.
