@@ -179,12 +179,12 @@ func TestYtDlpLangSteps(t *testing.T) {
 		userArgs []string
 		want     []string
 	}{
-		{"no user flag", "en", nil, []string{"--sub-langs en", enRegional, original, ""}},
+		{"no user flag", "en", nil, []string{"--sub-langs en-orig", "--sub-langs en", enRegional, original, ""}},
 		{"user --sub-lang", "en", []string{"--sub-lang", "en-orig"}, []string{"", ""}},
 		{"user --sub-langs=", "en", []string{"--sub-langs=en-orig"}, []string{"", ""}},
 		{"no language", "", nil, []string{"", ""}},
-		{"one letter language", "e", nil, []string{"--sub-langs e", `--sub-langs e-(?-i:[A-Z]{2}|\d{3})`, original, ""}},
-		{"regional language", "en-GB", nil, []string{"--sub-langs en-GB,en", enRegional, original, ""}},
+		{"one letter language", "e", nil, []string{"--sub-langs e-orig", "--sub-langs e", `--sub-langs e-(?-i:[A-Z]{2}|\d{3})`, original, ""}},
+		{"regional language", "en-GB", nil, []string{"--sub-langs en-orig", "--sub-langs en-GB,en", enRegional, original, ""}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -220,7 +220,7 @@ de-orig:'.*-orig')
 	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack %s\n' "$FAKE_TRACK" > "$(dirname "$out")/video.$FAKE_TRACK.vtt" ;;
 de-orig:en | de-orig:-)
 	echo "ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests" ;;
-en:en | en-GB:*'[A-Z]'* | *:-)
+en-orig:en-orig | en:en | en-GB:*'[A-Z]'* | *:-)
 	printf 'WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack %s\n' "$FAKE_TRACK" > "$(dirname "$out")/video.$FAKE_TRACK.vtt" ;;
 *)
 	echo "WARNING: $langs subtitles not available for dQw4w9WgXcQ" ;;
@@ -238,12 +238,14 @@ func TestGrabTranscriptLanguageSteps(t *testing.T) {
 		track     string
 		wantCalls string
 	}{
-		// One yt-dlp run when the exact track exists.
-		{"en", "en"},
-		// The exact run finds nothing, so the regional run follows.
-		{"en-GB", `en | en-(?-i:[A-Z]{2}|\d{3})`},
+		// One yt-dlp run when the English original track exists.
+		{"en-orig", "en-orig"},
+		// No en-orig, so the exact run follows.
+		{"en", "en-orig | en"},
+		// Neither finds anything, so the regional run follows.
+		{"en-GB", `en-orig | en | en-(?-i:[A-Z]{2}|\d{3})`},
 		// "en" is a refused auto-translation, so the original track follows.
-		{"de-orig", `en | en-(?-i:[A-Z]{2}|\d{3}) | .*-orig`},
+		{"de-orig", `en-orig | en | en-(?-i:[A-Z]{2}|\d{3}) | .*-orig`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.track, func(t *testing.T) {
@@ -313,9 +315,9 @@ func TestGrabTranscriptRetriesSlowerAfterRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Four fast language steps, all rate-limited, then the first slow one.
-	if gotCalls := strings.Join(strings.Fields(string(calls)), " "); gotCalls != "fast fast fast fast slow" {
-		t.Errorf("runs = %q, want four fast runs and one slow", gotCalls)
+	// Five fast language steps, all rate-limited, then the first slow one.
+	if gotCalls := strings.Join(strings.Fields(string(calls)), " "); gotCalls != "fast fast fast fast fast slow" {
+		t.Errorf("runs = %q, want five fast runs and one slow", gotCalls)
 	}
 
 	// With the user's own --sleep-requests there is no second pass.
@@ -376,6 +378,8 @@ func TestPickCaptionFile(t *testing.T) {
 		want     string // "" means no acceptable file
 	}{
 		{[]string{"v.ar.vtt", "v.en.vtt"}, "en", "v.en.vtt"},
+		// A dubbed video: en merges translations of the dubs; en-orig is real.
+		{[]string{"v.bn-orig.vtt", "v.en.vtt", "v.en-orig.vtt"}, "en", "v.en-orig.vtt"},
 		{[]string{"v.bn.vtt", "v.en-orig.vtt"}, "en", "v.en-orig.vtt"},
 		{[]string{"v.en-GB.vtt", "v.fr.vtt"}, "en", "v.en-GB.vtt"},
 		{[]string{"v.es-419.vtt"}, "es", "v.es-419.vtt"},
