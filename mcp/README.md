@@ -10,15 +10,20 @@ Claude (chat / Cowork)
 Vercel: mcp/  (this folder)          ──► raw.githubusercontent.com  (Fabric patterns)
    │  POST /youtube/transcript
    ▼
-Tailscale Funnel ──► your home machine: `fabric --serve` + yt-dlp
+Tailscale Funnel ──► io: `fabric --serve` + yt-dlp        (transcript source 1)
+   │  if io fails or is unreachable
+   ▼
+Bright Data Web Scraper API (YouTube videos dataset)    (transcript source 2)
 ```
 
 Diagrams with real hosts, paths and the request sequence: [`docs/fabric-on-io.md`](../docs/fabric-on-io.md).
 
 Why two pieces: YouTube blocks caption downloads from cloud/datacenter IPs. `yt-dlp` works from a
 residential connection, so transcripts are fetched by the Fabric REST server on **your** machine
-and published with Tailscale Funnel. The Vercel part is always up; when the home machine is off, pattern
-tools still work and transcript tools return a clear "home agent offline" error.
+and published with Tailscale Funnel. When that fails for any reason, the server asks Bright Data,
+which fetches the transcript through its own proxy network, so transcripts keep working from anywhere.
+The order is set by `TRANSCRIPT_PROVIDERS` (default `agent,brightdata`). If every source fails, the
+error lists each one and its reason.
 
 The server never calls an LLM. It hands Claude the transcript and the pattern's system prompt;
 Claude does the reasoning, so there is no second model bill.
@@ -43,12 +48,18 @@ provider that uses the local Claude subscription login instead of an API key (`f
 
 | Tool | What it does |
 | --- | --- |
-| `extract_wisdom(url, language?)` | Transcript + the `extract_wisdom` pattern, ready to apply |
-| `apply_pattern(url, pattern?, language?)` | Same, with any Fabric pattern (default `extract_wisdom`) |
+| `recommend_patterns(goal, limit?)` | Ranked patterns for what the user wants (intent rules + description match) |
+| `apply_patterns(url, patterns[], goal?, language?)` | One transcript + several patterns' instructions + a synthesis step |
+| `apply_pattern(url, pattern, language?)` | One transcript + one pattern |
+| `extract_wisdom(url, language?)` | Shortcut for `apply_pattern` with `extract_wisdom`, only when asked for by name |
 | `get_transcript(url, language?, timestamps?)` | Just the transcript, with title and channel |
 | `list_patterns(query?)` | Browse the 200+ Fabric patterns |
 | `get_pattern(name)` | A pattern's system prompt, to apply to any text |
-| `health()` | Are patterns and the home agent reachable? |
+| `health()` | Are patterns and each transcript source reachable? |
+
+The server sends instructions to the client: call `recommend_patterns`, choose 2-4 patterns, then
+`apply_patterns`. For claude.ai, also upload the skill in [`skills/fabric-research`](skills/fabric-research/SKILL.md)
+(Settings, Capabilities, Skills) so Claude follows the same workflow when you paste a YouTube link.
 
 ## 1. Home machine: transcript agent
 
@@ -113,6 +124,10 @@ Two project settings matter:
 | --- | --- |
 | `HOME_AGENT_URL` | the Funnel address, e.g. `https://io.TAILNET.ts.net:8443` |
 | `HOME_AGENT_API_KEY` | the same key the home agent runs with (`FABRIC_API_KEY` / `--api-key`) |
+| `BRIGHTDATA_API_KEY` | Bright Data API key (Account settings, API keys). Enables the cloud transcript source |
+| `TRANSCRIPT_PROVIDERS` | optional; default `agent,brightdata`. Order of transcript sources; `brightdata` alone skips io |
+| `BRIGHTDATA_DATASET_ID` | optional; default `gd_lk56epmy2i5g7lzu0k` (Bright Data "Youtube - Videos posts") |
+| `BRIGHTDATA_TIMEOUT_MS` | optional; default `120000` |
 | `MCP_PATH_TOKEN` | a long random secret, e.g. `openssl rand -hex 24` — becomes part of the connector URL |
 | `PATTERNS_BASE_URL` | optional; default `https://raw.githubusercontent.com/FRAQTIV/Fabric/main` |
 | `MAX_STREAM_MS` | optional; default `250000`. Hard bound on any event-stream response; keep it below the function's maxDuration (300 s) |
