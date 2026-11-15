@@ -181,14 +181,28 @@ func (o *YouTube) GrabTranscriptWithTimestampsWithArgs(videoId string, language 
 	return o.tryMethodYtDlpWithTimestamps(videoId, language, additionalArgs)
 }
 
+// rateLimitError is the error detectError returns when YouTube answers
+// HTTP 429 (Too Many Requests).
+type rateLimitError struct{ msg string }
+
+func (e rateLimitError) Error() string { return e.msg }
+
+// rateLimitRetryDelay is how long tryMethodYtDlpInternal waits after a
+// rate-limited pass before it runs the language steps once more, slower.
+// Tests set it to zero.
+var rateLimitRetryDelay = 10 * time.Second
+
 func detectError(ytOutput io.Reader) error {
 	scanner := bufio.NewScanner(ytOutput)
 	for scanner.Scan() {
 		curLine := scanner.Text()
 		debuglog.Debug(debuglog.Trace, "%s\n", curLine)
+		for _, key := range []string{"HTTP Error 429", "Too Many Requests"} {
+			if strings.Contains(curLine, key) {
+				return rateLimitError{i18n.T("youtube_rate_limit_exceeded")}
+			}
+		}
 		errorMessages := map[string]string{
-			"429":                                 i18n.T("youtube_rate_limit_exceeded"),
-			"Too Many Requests":                   i18n.T("youtube_rate_limit_exceeded"),
 			"Sign in to confirm you're not a bot": i18n.T("youtube_auth_required_bot_detection"),
 			"Use --cookies-from-browser":          i18n.T("youtube_auth_required_bot_detection"),
 		}
@@ -280,21 +294,38 @@ func (o *YouTube) tryMethodYtDlpInternal(videoId string, language string, additi
 			return "", fmt.Errorf("%s", fmt.Sprintf(i18n.T("youtube_invalid_ytdlp_arguments"), err))
 		}
 	}
-	// Stop at the first run that leaves a VTT file without an error. A
-	// language that has no track gives only a yt-dlp warning, so an error
-	// check alone would stop after a run that downloaded nothing.
-	for _, langArgs := range ytDlpLangSteps(language, userArgs) {
-		var ytOutput []byte
-		args := slices.Concat(baseArgs, langArgs, userArgs, []string{videoURL})
-		cmd := exec.Command("yt-dlp", args...)
-		debuglog.Debug(debuglog.Trace, "yt-dlp %+v\n", cmd.Args)
-		ytOutput, err = cmd.CombinedOutput()
-		ytReader := bytes.NewReader(ytOutput)
-		if err = detectError(ytReader); err == nil {
+	// Stop at the first run that leaves a VTT file. A language that has no
+	// track gives only a yt-dlp warning, so an error check alone would stop
+	// after a run that downloaded nothing.
+	runSteps := func(slowArgs []string) (err error) {
+		for _, langArgs := range ytDlpLangSteps(language, userArgs) {
+			args := slices.Concat(baseArgs, langArgs, slowArgs, userArgs, []string{videoURL})
+			cmd := exec.Command("yt-dlp", args...)
+			debuglog.Debug(debuglog.Trace, "yt-dlp %+v\n", cmd.Args)
+			ytOutput, _ := cmd.CombinedOutput()
+			// A downloaded caption file is success, whatever yt-dlp printed.
+			// yt-dlp warns about HTTP 429 for other tracks and other player
+			// clients even when the requested track downloads, and treating
+			// that as a failure discarded good transcripts and sent YouTube
+			// more requests for nothing.
 			if _, findErr := o.findVTTFilesWithFallback(tempDir, language); findErr == nil {
-				break
+				return nil
 			}
+			err = detectError(bytes.NewReader(ytOutput))
 		}
+		return err
+	}
+	err = runSteps(nil)
+	// When the last run was rate-limited, wait, then run the steps once
+	// more with a pause between yt-dlp's requests. A short burst limit
+	// often clears in that time. The user's own --sleep-requests wins.
+	var rateErr rateLimitError
+	if errors.As(err, &rateErr) && !slices.ContainsFunc(userArgs, func(a string) bool {
+		return strings.HasPrefix(a, "--sleep-requests")
+	}) {
+		debuglog.Debug(debuglog.Detailed, "yt-dlp rate-limited; retrying in %s with --sleep-requests 1\n", rateLimitRetryDelay)
+		time.Sleep(rateLimitRetryDelay)
+		err = runSteps([]string{"--sleep-requests", "1"})
 	}
 	if err != nil {
 		return

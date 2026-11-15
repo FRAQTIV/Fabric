@@ -2,13 +2,14 @@ import { createMcpHandler } from "mcp-handler";
 import { z } from "zod";
 import { config } from "./config.js";
 import { getPattern, listPatterns } from "./patterns.js";
+import { recommendPatterns } from "./recommend.js";
 import {
   describeTranscript,
   fetchTranscript,
   type Transcript,
 } from "./transcript.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -48,6 +49,28 @@ async function applyPattern(opts: {
   return ok(composePatternInput(opts.pattern, system, transcript));
 }
 
+/** One transcript fetch, several patterns: the model runs each in turn. */
+function composeMultiPatternInput(
+  patterns: Array<{ name: string; system: string }>,
+  t: Transcript,
+  goal?: string,
+): string {
+  const out = [
+    `You are applying ${patterns.length} Fabric patterns to the same INPUT: ${patterns.map((p) => p.name).join(", ")}.`,
+    ...(goal ? [`The user's goal: ${goal}`] : []),
+    "Run each PATTERN separately against the INPUT, in the order given, following its instructions exactly.",
+    "Put each result under a heading with the pattern name. Do not merge or shorten the patterns' outputs.",
+    "After the last one, add a short SYNTHESIS section that answers the user's goal using all the results,",
+    "noting where the patterns agree or conflict.",
+    "",
+  ];
+  patterns.forEach((p, i) => {
+    out.push(`===== PATTERN ${i + 1} of ${patterns.length}: ${p.name} =====`, p.system.trim(), "");
+  });
+  out.push("===== INPUT =====", describeTranscript(t), "", t.text);
+  return out.join("\n");
+}
+
 const urlField = z
   .string()
   .min(1)
@@ -56,6 +79,19 @@ const languageField = z
   .string()
   .optional()
   .describe('Caption language code, e.g. "en", "es", "de". Defaults to "en".');
+
+const INSTRUCTIONS = [
+  "Fabric MCP: Fabric patterns (prompt templates) plus YouTube transcripts.",
+  "Patterns are the value of this server. Do not default to extract_wisdom.",
+  "For any request about a video (research, analysis, notes, summary, fact-checking and so on):",
+  "1. Call recommend_patterns with the user's goal in their own words.",
+  "2. Choose the 2-4 patterns that together best serve that goal, using the returned descriptions.",
+  "   Pick one pattern only when the user names it or asks for something that narrow.",
+  "3. Call apply_patterns once with the URL and the chosen patterns. It fetches the transcript once.",
+  "4. Run every returned pattern against the transcript, then write the synthesis the response asks for.",
+  "Tell the user which patterns you used and why, in one line.",
+  "If a transcript fetch fails, report the error text as given; it lists each source that was tried.",
+].join("\n");
 
 export function createHandler() {
   return createMcpHandler(
@@ -66,7 +102,8 @@ export function createHandler() {
           title: "Get YouTube transcript",
           description:
             "Fetch the full transcript (captions) of a YouTube video, plus its title and channel. " +
-            "Transcripts come from yt-dlp running on the owner's home machine.",
+            "Tries yt-dlp on the owner's server first, then Bright Data. " +
+            "To analyze a video, prefer recommend_patterns then apply_patterns.",
           inputSchema: z.object({
             url: urlField,
             language: languageField,
@@ -134,6 +171,74 @@ export function createHandler() {
       );
 
       server.registerTool(
+        "recommend_patterns",
+        {
+          title: "Recommend Fabric patterns for a goal",
+          description:
+            "Rank the Fabric patterns that best fit what the user wants from a video or text. " +
+            "Pass the user's request in their own words. Returns the detected intents and a ranked " +
+            "shortlist with descriptions and reasons. Choose 2-4 that together cover the goal, then call apply_patterns.",
+          inputSchema: z.object({
+            goal: z.string().min(1).describe('What the user wants, e.g. "research this talk for my AI investing thesis".'),
+            limit: z.number().int().min(1).max(20).optional().describe("How many candidates to return. Default 8."),
+          }),
+        },
+        async ({ goal, limit }) => {
+          try {
+            const { intents, recommendations } = recommendPatterns(goal, await listPatterns(), limit ?? 8);
+            const lines = [
+              `Goal: ${goal}`,
+              `Detected intents: ${intents.length ? intents.join("; ") : "none specific (broad research set)"}`,
+              "",
+              "Candidates, best first:",
+              ...recommendations.map(
+                (r, i) => `${i + 1}. ${r.pattern} (score ${r.score}) — ${r.description} Why: ${r.why.join("; ")}.`,
+              ),
+              "",
+              "Choose the 2-4 that together cover the goal without overlap, then call apply_patterns.",
+              "If none fit, call list_patterns with a keyword.",
+            ];
+            return ok(lines.join("\n"));
+          } catch (err) {
+            return fail(err);
+          }
+        },
+      );
+
+      server.registerTool(
+        "apply_patterns",
+        {
+          title: "Apply several Fabric patterns to a YouTube video",
+          description:
+            "Fetch a YouTube transcript once and bundle it with the instructions of several Fabric patterns. " +
+            "Run each PATTERN on the INPUT, then write the SYNTHESIS the response asks for. " +
+            "Choose the patterns with recommend_patterns.",
+          inputSchema: z.object({
+            url: urlField,
+            patterns: z
+              .array(z.string().min(1))
+              .min(1)
+              .max(6)
+              .describe('Pattern names, e.g. ["youtube_summary", "analyze_claims", "extract_references"].'),
+            goal: z.string().optional().describe("The user's goal, used to frame the synthesis."),
+            language: languageField,
+          }),
+        },
+        async ({ url, patterns, goal, language }) => {
+          try {
+            const names = [...new Set(patterns)];
+            const [systems, transcript] = await Promise.all([
+              Promise.all(names.map(async (name) => ({ name, system: await getPattern(name) }))),
+              fetchTranscript({ url, language }),
+            ]);
+            return ok(composeMultiPatternInput(systems, transcript, goal));
+          } catch (err) {
+            return fail(err);
+          }
+        },
+      );
+
+      server.registerTool(
         "apply_pattern",
         {
           title: "Apply a Fabric pattern to a YouTube video",
@@ -146,8 +251,7 @@ export function createHandler() {
             pattern: z
               .string()
               .min(1)
-              .default("extract_wisdom")
-              .describe('Fabric pattern name. Default "extract_wisdom".'),
+              .describe("Fabric pattern name. Use recommend_patterns to choose; use apply_patterns for more than one."),
             language: languageField,
           }),
         },
@@ -165,7 +269,8 @@ export function createHandler() {
         {
           title: "Extract wisdom from a YouTube video",
           description:
-            "Shortcut for apply_pattern with the extract_wisdom pattern: fetches the transcript and returns it " +
+            "Use only when the user asks for extract_wisdom by name. For other requests use recommend_patterns " +
+            "and apply_patterns. Shortcut for apply_pattern with extract_wisdom: fetches the transcript and returns it " +
             "together with the extract_wisdom instructions (SUMMARY, IDEAS, INSIGHTS, QUOTES, HABITS, FACTS, " +
             "REFERENCES, ONE-SENTENCE TAKEAWAY, RECOMMENDATIONS). Apply the PATTERN to the INPUT and present the result.",
           inputSchema: z.object({ url: urlField, language: languageField }),
@@ -184,7 +289,7 @@ export function createHandler() {
         {
           title: "Health check",
           description:
-            "Report whether the pattern library and the home transcript agent are reachable.",
+            "Report whether the pattern library and each transcript source are reachable.",
           inputSchema: z.object({}),
         },
         async () => {
@@ -195,6 +300,12 @@ export function createHandler() {
           } catch (err) {
             lines.push(`patterns: FAILED (${err instanceof Error ? err.message : String(err)})`);
           }
+          lines.push(`transcript sources, in order: ${config.transcriptProviders.join(", ")}`);
+          lines.push(
+            config.brightDataApiKey
+              ? `bright data: configured (dataset ${config.brightDataDatasetId})`
+              : "bright data: not configured (BRIGHTDATA_API_KEY is empty)",
+          );
           if (!config.homeAgentUrl) {
             lines.push("home agent: not configured (HOME_AGENT_URL is empty)");
           } else {
@@ -220,6 +331,7 @@ export function createHandler() {
     },
     {
       serverInfo: { name: "fabric-mcp", version: VERSION },
+      instructions: INSTRUCTIONS,
       // The tool list never changes at runtime and, on Vercel, every request runs in its own
       // invocation with its own in-memory event bus, so a list_changed notification could never
       // be delivered anyway. Advertising listChanged makes 2026-07-28 clients open a

@@ -97,3 +97,9 @@ curl -s -X POST http://127.0.0.1:8080/youtube/transcript \
 If YouTube answers "Sign in to confirm you're not a bot": in `/etc/fabric-agent.env` set
 `FABRIC_EXTRA_ARGS=--yt-dlp-args "--cookies-from-browser firefox"` (a logged-in browser profile must exist
 for the service user) and `sudo systemctl restart fabric-agent`.
+
+If transcripts fail with "YouTube rate limit exceeded" (HTTP 500 from the agent): the agent already waits
+10 seconds and retries once with `--sleep-requests 1`. If that still fails, wait a few minutes, run
+`sudo pacman -Syu yt-dlp`, or slow every request down for good with
+`FABRIC_EXTRA_ARGS=--yt-dlp-args "--sleep-requests 1"` in `/etc/fabric-agent.env` (combine it with
+`--cookies-from-browser` inside the same quotes), then `sudo systemctl restart fabric-agent`.

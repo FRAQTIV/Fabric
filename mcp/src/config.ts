@@ -7,6 +7,16 @@ export const config = {
   ).replace(/\/+$/, ""),
   pathToken: process.env.MCP_PATH_TOKEN ?? "",
   transcriptTimeoutMs: Number(process.env.TRANSCRIPT_TIMEOUT_MS ?? 100_000),
+  // Transcript sources, tried in order until one returns text.
+  transcriptProviders: (process.env.TRANSCRIPT_PROVIDERS ?? "agent,brightdata")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+  brightDataApiKey: process.env.BRIGHTDATA_API_KEY ?? "",
+  // Bright Data "Youtube - Videos posts" scraper; its records carry the transcript.
+  brightDataDatasetId: process.env.BRIGHTDATA_DATASET_ID ?? "gd_lk56epmy2i5g7lzu0k",
+  brightDataTimeoutMs: Number(process.env.BRIGHTDATA_TIMEOUT_MS ?? 120_000),
+  brightDataPollMs: Number(process.env.BRIGHTDATA_POLL_MS ?? 5_000),
   patternCacheTtlMs: Number(process.env.PATTERN_CACHE_TTL_MS ?? 10 * 60_000),
   // Hard bound on any event-stream response. Keep it below the Vercel function
   // maxDuration (300 s by default) so a held-open stream ends cleanly instead of
